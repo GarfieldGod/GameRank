@@ -1,0 +1,70 @@
+# ---- 依赖 ----
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# ---- 构建产物 ----
+dist/
+client/dist/
+server/dist/
+*.tsbuildinfo
+
+# ---- 环境变量与密钥 ----
+.env
+.env.local
+.env.*.local
+*.env
+
+# ---- 数据库（本地 SQLite）----
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/dev.db
+prisma/dev.db-journal
+server/prisma/dev.db
+server/prisma/dev.db-journal
+
+# ---- 运行时文件 ----
+server/uploads/
+*.pid
+*.lock
+
+# ---- 日志 ----
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- 缓存与临时文件 ----
+.tmp
+.temp
+.cache
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ---- 编辑器 / IDE ----
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ---- 测试与覆盖率 ----
+coverage/
+.nyc_output/
+.vite/
+
+# ---- 打包器临时目录 ----
+.vite/cache
+.vite/deps

@@ -1,0 +1,60 @@
+// 数据库驱动：SQLite（本地开发零配置）
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id        Int      @id @default(autoincrement()) // 主键
+  username  String   @unique // 账号，唯一
+  nickname  String? // 用户名（昵称），未设置时默认为 "Gamer" + 账号
+  password  String // 加密后的密码（bcrypt 哈希）
+  avatar    String? // 头像图片 URL
+  bio       String? // 个人简介
+  role      String   @default("USER") // 身份：USER 普通用户 / ADMIN 管理员
+  createdAt DateTime @default(now()) // 创建时间
+
+  reviews GameReview[] // 该用户发布的评测
+
+  @@map("User")
+}
+
+// 游戏评测表
+model GameReview {
+  id            Int      @id @default(autoincrement()) // 主键
+  gameName      String // 游戏名称
+  coverImageUrl String? // 封面图片 URL
+  title         String // 评测标题
+  content       String // markdown 正文
+  rating        Int // 评分，建议 0-10 或 1-5，由业务层约定
+  tags          String? // 标签，JSON 数组字符串，如 "[\"RPG\",\"开放世界\"]"
+  authorId      Int // 作者 id，关联 User
+  author        User     @relation(fields: [authorId], references: [id]) // 关联 User
+  publishedAt   DateTime @default(now()) // 发布时间
+  updatedAt     DateTime @updatedAt // 更新时间
+
+  @@index([authorId])
+  @@map("GameReview")
+}
+
+// 游戏实体表（一个页面 = 一个游戏）
+model Game {
+  id            Int      @id @default(autoincrement()) // 主键
+  nameZh        String   @unique // 中文名
+  nameEn        String // 英文名
+  coverImageUrl String? // 封面图片 URL
+  score         Float? // 游戏综合分数（可空）
+  developer     String? // 制作公司
+  publisher     String? // 发行公司
+  description   String   @default("") // 游戏简介
+  tags          String? // 标签，JSON 数组字符串
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("Game")
+}
