@@ -4,6 +4,15 @@
   box-sizing: border-box;
 }
 
+/* 只作用在 html（会传播到视口）：裁掉 hero 背景 width:100vw 因垂直滚动条宽度引起的横向溢出。
+   不能用 overflow-x:hidden——它会把 html 的 overflow-y 计算成 auto，让 html 变成滚动容器，
+   从而打破内部 position: sticky 相对真实视口的吸顶（导航栏/标签栏会被滑走）。
+   用 overflow-x:clip：只裁剪不建立滚动容器，sticky 依旧相对视口吸顶。clip 不支持时回退 hidden。 */
+html {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
 /* ===== 主题 token（亮色为默认）===== */
 :root {
   color-scheme: light;

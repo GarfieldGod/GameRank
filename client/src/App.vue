@@ -1,6 +1,8 @@
 <script setup>
 import { computed, watch } from "vue";
 import { useRoute } from "vue-router";
+import BackFloat from "@/components/BackFloat.vue";
+import BackTopFloat from "@/components/BackTopFloat.vue";
 import NavBar from "@/components/NavBar.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -20,8 +22,10 @@ watch(
 </script>
 
 <template>
-  <div id="app">
+  <div id="app" :style="{ '--content-w': isWide ? '1200px' : '960px' }">
     <NavBar />
+    <BackFloat />
+    <BackTopFloat />
     <main class="page" :class="{ wide: isWide }">
       <RouterView v-slot="{ Component }">
         <KeepAlive :include="['GameListView', 'ReviewListView']">

@@ -55,7 +55,7 @@ const zh = {
   "games.emptyQ": "还没有游戏数据？",
   "games.addNew": "我来添加",
   "games.addedPending": "游戏已提交，等待站长或管理员审批。",
-  "games.applyAdd": "申请添加游戏",
+  "games.applyAdd": "添加游戏",
   "games.loadedAll": "已加载全部游戏",
   "loading": "加载中…",
 
@@ -86,6 +86,14 @@ const zh = {
   "game.detail.myReviews": "我的评测",
   "game.detail.otherReviews": "其他评测",
   "game.detail.countedReviews": "计入评测数：{n}",
+
+  "review.like": "点赞",
+  "review.dislike": "不认可",
+  "review.viewFull": "查看更多",
+  "review.collapse": "收起",
+  "review.rank": "TA的排行榜中位于#{n}",
+  "review.rankTotal": "排行榜中共 {m} 款游戏",
+  "review.rating": "综合评分：{n}",
 
   "game.new.title": "添加游戏",
   "game.new.nameZh": "中文名",
@@ -217,6 +225,8 @@ const zh = {
   "common.optional": "可选",
 
   "common.cancel": "取消",
+  "common.retry": "重试",
+  "common.netTimeout": "网络连接超时，请重试",
   "common.confirm": "确定",
   "common.save": "保存",
   "common.saving": "保存中…",
@@ -355,7 +365,7 @@ const en = {
   "games.emptyQ": "No games yet? ",
   "games.addNew": "Add one",
   "games.addedPending": "Game submitted and pending approval.",
-  "games.applyAdd": "Propose a game",
+  "games.applyAdd": "Add Game",
   "games.loadedAll": "All games loaded",
   "loading": "Loading…",
 
@@ -385,7 +395,15 @@ const en = {
   "game.detail.writeReview": "Write Review",
   "game.detail.myReviews": "My Reviews",
   "game.detail.otherReviews": "Other Reviews",
-  "game.detail.countedReviews": "Counted reviews: {n}",
+  "game.detail.countedReviews": "Counted Reviews: {n}",
+
+  "review.like": "Like",
+  "review.dislike": "Disagree",
+  "review.viewFull": "View More",
+  "review.collapse": "Collapse",
+  "review.rank": "Ranked #{n} in this player's reviews",
+  "review.rankTotal": "{m} games in the leaderboard",
+  "review.rating": "Score: {n}",
 
   "game.new.title": "Add Game",
   "game.new.nameZh": "Chinese name",
@@ -514,6 +532,8 @@ const en = {
   "common.optional": "optional",
 
   "common.cancel": "Cancel",
+  "common.retry": "Retry",
+  "common.netTimeout": "Network connection timed out, please retry",
   "common.confirm": "OK",
   "common.save": "Save",
   "common.saving": "Saving…",

@@ -128,9 +128,20 @@ const ZH2EN = {
 const EN2ZH = Object.fromEntries(
   Object.entries(ZH2EN).map(([zh, en]) => [en.toLowerCase(), zh])
 );
+// 中文下统一展示名：反向表按插入顺序取键，规范短名优先
+EN2ZH.rpg = "角色扮演";
+// 中文长写法归一：存储的标签可能是「角色扮演游戏/角色扮演类」，中文页面统一显示为「角色扮演」
+const ZH_CANON = {
+  角色扮演类: "角色扮演",
+  角色扮演游戏: "角色扮演",
+};
 
 // 按当前语言翻译标签；找不到对应翻译时原样返回（标签为自由文本，容忍个别缺失）
 export function translateTag(tag, isEn) {
   if (!tag) return tag;
-  return isEn ? ZH2EN[tag] ?? tag : EN2ZH[String(tag).toLowerCase()] ?? tag;
+  if (isEn) return ZH2EN[tag] ?? tag;
+  // 先归一中文长写法，再走英文标签→中文
+  const zh = ZH_CANON[tag];
+  if (zh) return zh;
+  return EN2ZH[String(tag).toLowerCase()] ?? tag;
 }

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { createGame, updateGame, fetchGame, fetchGameTags, sgdbSearchGames, sgdbAssets, sgdbDownload } from "@/api/game";
 import { fetchProposal, updateProposal } from "@/api/proposal";
 import { uploadImage } from "@/api/review";
-import { extractError } from "@/api/request";
+import { extractError, isTimeout } from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
@@ -52,6 +52,7 @@ const sgdbAssetsData = ref({ grids: [], logos: [], heroes: [] });
 const sgdbSearching = ref(false);
 const sgdbLoading = ref(false);
 const sgdbError = ref("");
+const sgdbRetryable = ref(false); // 最近一次查询超时，标题右侧显示重试按钮
 const sliders = ref({ grid: { page: 0 }, logo: { page: 0 }, hero: { page: 0 } });
 const chosen = ref({ grid: null, logo: null, hero: null }); // 已选用素材（用于高亮）
 
@@ -159,6 +160,7 @@ async function onSgdbSearch() {
   }
   sgdbSearching.value = true;
   sgdbError.value = "";
+  sgdbRetryable.value = false;
   sgdbGames.value = [];
   sgdbActive.value = null;
   sgdbAssetsData.value = { grids: [], logos: [], heroes: [] };
@@ -169,10 +171,17 @@ async function onSgdbSearch() {
       await chooseSgdbGame(sgdbGames.value[0]);
     }
   } catch (err) {
-    sgdbError.value = extractError(err, lang.t("game.new.sgdbFailed"));
+    sgdbRetryable.value = isTimeout(err);
+    sgdbError.value = isTimeout(err) ? lang.t("common.netTimeout") : extractError(err, lang.t("game.new.sgdbFailed"));
   } finally {
     sgdbSearching.value = false;
   }
+}
+
+// 查询超时后点击标题右侧「重试」：隐藏重试按钮并重新发起查询
+function retrySgdb() {
+  sgdbRetryable.value = false;
+  onSgdbSearch();
 }
 
 // 匹配结果是否足够明确（仅一款，或首款游戏名与输入完全一致）
@@ -194,7 +203,8 @@ async function chooseSgdbGame(g) {
   try {
     sgdbAssetsData.value = await sgdbAssets(g.id);
   } catch (err) {
-    sgdbError.value = extractError(err, lang.t("game.new.sgdbFailed"));
+    sgdbRetryable.value = sgdbRetryable.value || isTimeout(err);
+    sgdbError.value = isTimeout(err) ? lang.t("common.netTimeout") : extractError(err, lang.t("game.new.sgdbFailed"));
     sgdbAssetsData.value = { grids: [], logos: [], heroes: [] };
   } finally {
     sgdbLoading.value = false;
@@ -270,6 +280,8 @@ const PANEL_LISTS = {
   libCover: ["grid", "logo", "hero"],
 };
 const panelAssetKeys = computed(() => (panelMode.value ? PANEL_LISTS[panelMode.value] || [] : []));
+// 只展示查询到素材的类型列表；某类没有任何图片时隐藏对应的列表
+const visibleAssetKeys = computed(() => panelAssetKeys.value.filter((k) => assetCount(k) > 0));
 
 function openPanel(mode) {
   panelMode.value = mode;
@@ -326,9 +338,10 @@ function setCropSourceUrl(url) {
     const w = Math.min(r.w, STAGE.w * 0.85);
     cropBox.w = w;
     cropBox.h = w * CROP_RATIO;
+    // 先钳制让框完全落在图片内（图片小于目标框时会把 w/h 按比例缩小），再以其为基准重新居中
+    clampCrop();
     cropBox.x = r.x + (r.w - cropBox.w) / 2;
     cropBox.y = r.y + (r.h - cropBox.h) / 2;
-    clampCrop();
   };
   img.src = url;
 }
@@ -510,9 +523,9 @@ async function save() {
       await updateProposal(editProposalId.value, payload);
       router.replace({ path: `/user/${auth.user?.id}`, query: { tab: "submission" } });
     } else {
-      // 新建游戏提交后进入待审批，暂不对其他所有人展示，跳回游戏库并提示
-      await createGame(payload);
-      router.replace({ path: "/games", query: { added: 1 } });
+      // 新建游戏：管理员/站长直接通过，跳转详情页；普通用户进入待审，跳回游戏库并提示
+      const created = await createGame(payload);
+      router.replace(auth.isAdmin ? `/game/${created.id}` : { path: "/games", query: { added: 1 } });
     }
   } catch (err) {
     error.value = extractError(
@@ -701,6 +714,7 @@ onMounted(() => {
           <div class="panel-recommend">
             <div class="rec-head">
               <span class="rec-title">{{ lang.t("game.new.panelRecommend") }}</span>
+              <button v-if="sgdbRetryable && !sgdbSearching" type="button" class="rec-retry" @click="retrySgdb">{{ lang.t("common.retry") }}</button>
               <span v-if="sgdbSearching || sgdbLoading" class="rec-loading"><span class="spin"></span></span>
               <span v-else-if="sgdbActive" class="rec-game" :title="sgdbActive.name">{{ sgdbActive.name }}</span>
             </div>
@@ -722,7 +736,7 @@ onMounted(() => {
             <p v-if="sgdbLoading" class="sgdb-hint">{{ lang.t("game.new.sgdbLoading") }}</p>
 
             <template v-if="panelMeta && sgdbActive && !sgdbLoading">
-              <div v-for="k in panelAssetKeys" :key="k" class="sgdb-type">
+              <div v-for="k in visibleAssetKeys" :key="k" class="sgdb-type">
                 <div class="sgdb-slider" :class="'slider-' + k">
                   <button type="button" class="sgdb-nav" :disabled="sliderPage(k) <= 0" @click="prevPage(k)">‹</button>
                   <div class="sgdb-track">
@@ -1286,6 +1300,19 @@ onMounted(() => {
   border-color: var(--text-3);
   border-top-color: transparent;
 }
+/* 查询超时后标题右侧的重试按钮 */
+.rec-retry {
+  padding: 1px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.rec-retry:hover {
+  border-color: var(--primary);
+}
 
 .sgdb-err {
   font-size: 13px;
@@ -1354,6 +1381,9 @@ onMounted(() => {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  /* 多图平铺时会用 flex-grow 铺满整行，此处无作用；仅当项数少、被限宽后
+     留有剩余空间时，让整组居中（例如只剩一个元素时居中于列表中间）。 */
+  justify-content: center;
 }
 
 .sgdb-cand {
@@ -1378,8 +1408,15 @@ onMounted(() => {
   box-shadow: 0 0 0 2px var(--primary-soft);
 }
 
+/* 限宽：单张/少张图时不让 grid/logo 因 flex 撑满整行，各按自身宽高比给合适的宽度上限；
+   多图平铺（grid 5 / logo 3）时每一项都比上限窄，不受影响。
+   hero 一页只显示 1 个，需要铺满整行，故不设 max-width（见下方 .slider-hero 无限制）。 */
+.slider-grid .sgdb-cand { max-width: 180px; }
+.slider-logo .sgdb-cand { max-width: 260px; }
+
 .sgdb-thumb {
   width: 100%;
+  max-height: 240px; /* 高度上限：网格/列表项在只有一张或少张图时不会被撑得过高 */
   object-fit: cover; /* 图片自适应填满预览框，不被拉伸变形 */
   display: block;
 }
@@ -1397,7 +1434,8 @@ onMounted(() => {
 }
 
 .sgdb-thumb.t-hero {
-  aspect-ratio: 32 / 9; /* 详情背景列表高度为一半（原 16:9） */
+  aspect-ratio: 3 / 1; /* 高为宽的 1/3；单张铺满列表宽度，故按此比例等比展示 */
+  max-height: none; /* hero 一页唯一一张，不受 240 上限约束 */
   object-fit: contain;
   background: var(--surface-2);
 }
@@ -1778,6 +1816,7 @@ textarea {
 .crop-stage {
   position: relative;
   align-self: center; /* 舞台在面板中水平居中，裁剪框随之居中 */
+  flex-shrink: 0; /* 面板内容超 92vh 时不要被 flex 压扁——所有裁剪/图片坐标都基于 STAGE 380 高，压扁会导致整体下偏、底部裁切 */
   background: #000;
   border-radius: 8px;
   overflow: hidden;

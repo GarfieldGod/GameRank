@@ -95,11 +95,12 @@ const router = createRouter({
       redirect: "/",
     },
   ],
-  // 恢复滚动：后退/前进时还原浏览器保存的位置；
-  // 列表页由 KeepAlive 缓存的组件通过 onActivated 自行恢复滚动，这里不对其置顶，避免覆盖
+  // 恢复滚动：缓存列表页由 KeepAlive 组件通过 onDeactivated/onActivated 自行保存恢复滚动，
+  // 这里统一 return false 不让路由历史位置与其冲突（否则会用过时位置覆盖正确值）。
+  // 其余页面前进时置顶，后退时用浏览器保存位置。
   scrollBehavior(to, _from, savedPosition) {
-    if (savedPosition) return savedPosition;
     if (to.name === "game-list" || to.name === "review-list") return false;
+    if (savedPosition) return savedPosition;
     return { top: 0 };
   },
 });

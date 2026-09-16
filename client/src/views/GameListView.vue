@@ -1,6 +1,6 @@
 <script setup>
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
-import { RouterLink, useRoute } from "vue-router";
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { onBeforeRouteLeave, RouterLink, useRoute } from "vue-router";
 import { fetchGames, fetchGameTags } from "@/api/game";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
@@ -22,6 +22,14 @@ const pageSize = 50;
 const total = ref(0);
 const hasMore = computed(() => games.value.length < total.value);
 const debounceTimer = ref(null);
+// 记录已加载完成的封面 id：未就绪前封面透明占位，加载完成后渐变淡入，避免比例/裁剪的跳变
+const loadedCovers = reactive(new Set());
+function onCoverLoad(id) {
+  loadedCovers.add(id);
+}
+function isCoverLoaded(id) {
+  return loadedCovers.has(id);
+}
 // 添加游戏后跳回时的提示（GET /games?added=1）
 const justAdded = ref(Boolean(route.query.added));
 
@@ -130,8 +138,10 @@ onMounted(() => {
 });
 
 // —— 列表被 KeepAlive 缓存期间保存/恢复滚动位置 ——
+// 必须在 onBeforeRouteLeave 里读取真实 scrollY：onDeactivated 触发时路由已先滚到顶部，
+// 此时 window.scrollY 已被置 0，会存成错误值。
 const savedScroll = ref(0);
-onDeactivated(() => {
+onBeforeRouteLeave(() => {
   savedScroll.value = window.scrollY || 0;
 });
 onActivated(async () => {
@@ -176,10 +186,20 @@ onBeforeUnmount(() => {
 
       <div class="main">
         <div class="search-bar">
-          <input v-model="keyword" :placeholder="lang.t('games.searchPlaceholder')" />
-          <button v-if="keyword" type="button" class="clear" @click="clearSearch">
-            {{ lang.t("games.clearSearch") }}
-          </button>
+          <div class="search-input">
+            <input v-model="keyword" :placeholder="lang.t('games.searchPlaceholder')" />
+            <button
+              v-if="keyword"
+              type="button"
+              class="search-clear"
+              @click="clearSearch"
+              :aria-label="lang.t('games.clearSearch')"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
           <RouterLink v-if="auth.isLoggedIn" class="apply-add" to="/games/new">
             {{ lang.t("games.applyAdd") }}
           </RouterLink>
@@ -200,7 +220,14 @@ onBeforeUnmount(() => {
         <div v-else class="grid">
           <div v-for="g in games" :key="g.id" class="card">
             <RouterLink class="card-link" :to="`/game/${g.id}`">
-              <img class="cover" :src="cover(g.logoImageUrl || g.coverImageUrl || g.heroImageUrl)" :alt="lang.gname(g)" />
+              <img
+                class="cover"
+                :class="{ loaded: isCoverLoaded(g.id) }"
+                :src="cover(g.logoImageUrl || g.coverImageUrl || g.heroImageUrl)"
+                :alt="lang.gname(g)"
+                loading="lazy"
+                @load="onCoverLoad(g.id)"
+              />
             </RouterLink>
             <div class="body">
               <h3 class="gname">
@@ -322,10 +349,15 @@ h1 {
   margin-bottom: 16px;
 }
 
-.search-bar input {
+.search-input {
+  position: relative;
   flex: 1;
   min-width: 0;
-  padding: 9px 12px;
+}
+
+.search-input input {
+  width: 100%;
+  padding: 9px 34px 9px 12px; /* 右侧为叉号按钮留出空间 */
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 14px;
@@ -333,25 +365,33 @@ h1 {
   background: var(--surface);
 }
 
-.search-bar input:focus {
+.search-input input:focus {
   outline: none;
   border-color: var(--primary);
 }
 
-.search-bar button {
-  padding: 8px 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-1);
-  font-size: 14px;
+/* 搜索框内部右侧的清空叉号 */
+.search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
   cursor: pointer;
-  white-space: nowrap;
 }
 
-.search-bar button:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+.search-clear:hover {
+  background: var(--hover);
+  color: var(--text-1);
 }
 
 .apply-add {
@@ -452,6 +492,12 @@ h1 {
   object-fit: cover;
   display: block;
   background: var(--surface-2);
+  /* 未就绪时保持透明，图片加载完成后渐变淡入，避免先看到别的比例再跳到裁剪后的突兀感 */
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.cover.loaded {
+  opacity: 1;
 }
 
 .body {

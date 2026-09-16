@@ -34,3 +34,8 @@ export async function uploadImage(file) {
   });
   return r.data.url;
 }
+
+// 点赞/不认可：{ kind: 'like'|'dislike' } → { likeCount, dislikeCount, myReaction }
+export function reactToReview(id, kind) {
+  return request.post(`/reviews/${id}/reaction`, { kind }).then((r) => r.data);
+}

@@ -1,7 +1,7 @@
 import { Router } from "express";
-import jwt from "jsonwebtoken";
 import prisma from "../prismaClient.js";
-import { jwtAuth } from "../middleware/auth.js";
+import { jwtAuth, optionJwtAuth } from "../middleware/auth.js";
+import { attachReviewStats, REACTION_KINDS } from "../utils/reviewStats.js";
 
 const router = Router();
 
@@ -89,7 +89,7 @@ router.get(
   "/",
   (req, res, next) => {
     if (req.query.status === "DRAFT") return jwtAuth(req, res, next);
-    next();
+    optionJwtAuth(req, res, next);
   },
   async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -127,7 +127,7 @@ router.get(
       prisma.gameReview.findMany({
         where,
         include: {
-          author: { select: { id: true, username: true, avatar: true } },
+          author: { select: { id: true, username: true, nickname: true, avatar: true } },
           game: gameSelect,
         },
         orderBy,
@@ -136,7 +136,8 @@ router.get(
       }),
     ]);
 
-    res.json({ list: parseListTags(list), total, page, pageSize });
+    const listStats = await attachReviewStats(parseListTags(list), req.userId);
+    res.json({ list: listStats, total, page, pageSize });
   }
 );
 
@@ -229,13 +230,13 @@ router.post("/", jwtAuth, async (req, res) => {
   res.status(201).json(parseReview(review));
 });
 
-// 评测详情：GET /api/reviews/:id（草稿仅作者本人或管理员可看）
-router.get("/:id", async (req, res) => {
+// 评测详情：GET /api/reviews/:id（草稿仅作者本人或管理员可看；可选登录以附加我的态度）
+router.get("/:id", optionJwtAuth, async (req, res) => {
   const id = Number(req.params.id);
   const review = await prisma.gameReview.findUnique({
     where: { id },
     include: {
-      author: { select: { id: true, username: true, avatar: true } },
+      author: { select: { id: true, username: true, nickname: true, avatar: true } },
       game: gameSelect,
     },
   });
@@ -244,21 +245,48 @@ router.get("/:id", async (req, res) => {
   }
   if (review.status === "DRAFT") {
     // 需要登录且为作者本人或管理员
-    let auth = null;
-    try {
-      const header = req.headers.authorization || "";
-      if (header.startsWith("Bearer ")) {
-        auth = jwt.verify(header.slice(7), process.env.JWT_SECRET || "change-me-to-a-long-random-secret");
-      }
-    } catch {
-      auth = null;
-    }
-    const isOwner = auth && (auth.userId === review.authorId || auth.role === "ADMIN" || auth.role === "OWNER");
+    const isOwner = req.userId && (req.userId === review.authorId || req.role === "ADMIN" || req.role === "OWNER");
     if (!isOwner) {
       return res.status(404).json({ error: "review not found" });
     }
   }
-  res.json(parseReview(review));
+  const [withStats] = await attachReviewStats([parseReview(review)], req.userId);
+  res.json(withStats);
+});
+
+// 点赞/不认可：POST /api/reviews/:id/reaction（需登录，作者不能对自己投票）
+// body: { kind: "like" | "dislike" }；再次点击同一类型=取消投票
+router.post("/:id/reaction", jwtAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const kind = (req.body?.kind || "").toString();
+  if (!REACTION_KINDS.has(kind)) {
+    return res.status(400).json({ error: "kind 需为 like 或 dislike" });
+  }
+  const review = await prisma.gameReview.findUnique({ where: { id } });
+  if (!review || review.deletedAt || review.status !== "PUBLISHED") {
+    return res.status(404).json({ error: "review not found" });
+  }
+  if (review.authorId === req.userId) {
+    return res.status(403).json({ error: "不能评价自己的评测" });
+  }
+
+  const existing = await prisma.gameReviewReaction.findUnique({
+    where: { reviewId_userId: { reviewId: id, userId: req.userId } },
+  });
+  if (existing && existing.kind === kind) {
+    await prisma.gameReviewReaction.delete({ where: { id: existing.id } });
+  } else if (existing) {
+    await prisma.gameReviewReaction.update({ where: { id: existing.id }, data: { kind } });
+  } else {
+    await prisma.gameReviewReaction.create({ data: { reviewId: id, userId: req.userId, kind } });
+  }
+
+  const [withStats] = await attachReviewStats([review], req.userId);
+  res.json({
+    likeCount: withStats.likeCount,
+    dislikeCount: withStats.dislikeCount,
+    myReaction: withStats.myReaction,
+  });
 });
 
 // 更新评测：PUT /api/reviews/:id（需登录，仅作者本人）

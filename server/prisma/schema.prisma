@@ -20,8 +20,9 @@ model User {
   theme     String? // 主题偏好：light 亮色 / dark 暗色（可空，默认亮色）
   createdAt DateTime @default(now()) // 创建时间
 
-  reviews     GameReview[]   // 该用户发布的评测
-  proposals   GameProposal[] // 该用户提交的游戏申请（新增/编辑）
+  reviews          GameReview[]
+  reviewReactions  GameReviewReaction[] // 该用户在评测上的点赞/不认可记录
+  proposals        GameProposal[] // 该用户提交的游戏申请（新增/编辑）
   gameSubmissions Game[]     @relation("GameSubmitter") // 该用户申请新增的游戏（待审中）
 
   @@map("User")
@@ -45,12 +46,29 @@ model GameReview {
   author        User     @relation(fields: [authorId], references: [id]) // 关联 User
   gameId        Int? // 关联的游戏 id（可空，草稿或历史数据可能为空）
   game          Game?    @relation(fields: [gameId], references: [id]) // 关联 Game，用于语言化名称与封面
+  reactions     GameReviewReaction[] // 该评测收到的点赞/不认可
   publishedAt   DateTime @default(now()) // 发布时间
   updatedAt     DateTime @updatedAt // 更新时间
 
   @@index([authorId])
   @@index([gameId])
   @@map("GameReview")
+}
+
+// 评测点赞/不认可
+model GameReviewReaction {
+  id        Int      @id @default(autoincrement()) // 主键
+  reviewId  Int // 关联评测
+  userId    Int // 操作用户
+  kind      String // like 点赞 / dislike 不认可
+  createdAt DateTime @default(now())
+
+  review GameReview @relation(fields: [reviewId], references: [id])
+  user   User       @relation(fields: [userId], references: [id])
+
+  @@unique([reviewId, userId])
+  @@index([reviewId])
+  @@map("GameReviewReaction")
 }
 
 // 游戏实体表（一个页面 = 一个游戏）

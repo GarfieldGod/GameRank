@@ -1,32 +1,16 @@
 <script setup>
 import { computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import { useAuthStore, displayName } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
 
-const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const lang = useLangStore();
 const theme = useThemeStore();
 
 const userDisplay = computed(() => displayName(auth.user));
-
-// 顶层页集合：处于这些页面时不显示返回箭头
-const HUB = new Set(["home", "game-list", "review-list"]);
-// 是否显示返回箭头：非顶层页显示；自己的主页隐藏、别人的主页显示
-const showBack = computed(() => {
-  if (route.name === "user-profile") {
-    const isOwn = auth.isLoggedIn && auth.user?.id != null && Number(route.params.userId) === auth.user.id;
-    return !isOwn;
-  }
-  return !HUB.has(route.name);
-});
-
-function onBack() {
-  router.back();
-}
 
 function onLogout() {
   auth.logout();
@@ -47,17 +31,6 @@ function avatarUrl(url) {
 
 <template>
   <nav class="navbar">
-    <button
-      v-if="showBack"
-      class="back-btn"
-      type="button"
-      :title="lang.isEn ? 'Back' : '返回'"
-      aria-label="返回"
-      @click="onBack"
-    >
-      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15 4l-8 8 8 8z"/></svg>
-    </button>
-
     <div class="side left">
       <RouterLink class="brand" to="/">Game Score</RouterLink>
     </div>
@@ -123,31 +96,6 @@ function avatarUrl(url) {
   flex: 1;
   display: flex;
   align-items: center;
-}
-
-/* 返回箭头：顶部按钮，无箭柄的纯箭头；
-   水平方向对齐内容容器(.page)左缘 (max-width:960 居中)，窄屏时贴边不重叠 */
-.back-btn {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateX(max(24px, calc((100vw - 960px) / 2))) translateY(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-1);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.back-btn:hover {
-  background: var(--hover);
-  color: var(--primary);
 }
 
 .side.right {

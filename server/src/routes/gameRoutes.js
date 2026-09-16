@@ -2,6 +2,10 @@ import { Router } from "express";
 import prisma from "../prismaClient.js";
 import { jwtAuth, adminOnly, optionJwtAuth } from "../middleware/auth.js";
 import { sgdbSearch, fetchAssets, downloadCover, downloadThumb } from "../services/sgdb.js";
+import { attachReviewStats } from "../utils/reviewStats.js";
+
+// 评测列表附加其关联游戏（封面/名称），供前端评测卡片展示并可跳转详情
+const reviewGameSelect = { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true } };
 
 const router = Router();
 
@@ -232,7 +236,7 @@ router.get("/:id", optionJwtAuth, async (req, res) => {
         deletedAt: null,
         OR: nameOr,
       },
-      include: { author: { select: { id: true, username: true, avatar: true } } },
+      include: { author: { select: { id: true, username: true, nickname: true, avatar: true } }, game: reviewGameSelect },
     });
     if (myReview) {
       listWhere = { ...whereGame, NOT: { id: myReview.id } };
@@ -243,7 +247,7 @@ router.get("/:id", optionJwtAuth, async (req, res) => {
     prisma.gameReview.count({ where: whereGame }),
     prisma.gameReview.findMany({
       where: listWhere,
-      include: { author: { select: { id: true, username: true, avatar: true } } },
+      include: { author: { select: { id: true, username: true, nickname: true, avatar: true } }, game: reviewGameSelect },
       orderBy: { publishedAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -273,12 +277,18 @@ router.get("/:id", optionJwtAuth, async (req, res) => {
     ? { ...myReview, tags: myReview.tags ? JSON.parse(myReview.tags) : [] }
     : null;
 
+  // 为「我的评测」与其余评测附加点赞/不认可数量、当前用户态度、作者内排名
+  const formattedReviews = await attachReviewStats(shapedReviews, req.userId);
+  const formattedMyReview = shapedMyReview
+    ? (await attachReviewStats([shapedMyReview], req.userId))[0]
+    : null;
+
   const shapedSingle = (await attachScores([game]))[0];
 
   res.json({
     game: parseTags(shapedSingle),
-    reviews: shapedReviews,
-    myReview: shapedMyReview,
+    reviews: formattedReviews,
+    myReview: formattedMyReview,
     total,
     countedReviews,
     page,
@@ -329,8 +339,11 @@ router.post("/", jwtAuth, async (req, res) => {
     tags: Array.isArray(tags) ? tags : [],
   };
 
-  // 事务：创建待审游戏 + 新增申请记录
+  // 站长/管理员创建直接通过（免审批）；普通用户进入待审流程：创建 PENDING 游戏 + 新增申请记录
+  const isAdmin = isAdminRole(req);
+
   const created = await prisma.$transaction(async (tx) => {
+    const status = isAdmin ? "APPROVED" : "PENDING";
     const game = await tx.game.create({
       data: {
         nameZh: data.nameZh,
@@ -339,7 +352,7 @@ router.post("/", jwtAuth, async (req, res) => {
         logoImageUrl: data.logoImageUrl,
         heroImageUrl: data.heroImageUrl,
         score: data.score,
-        status: "PENDING", // 新建游戏一律待审批
+        status,
         submitterId: req.userId,
         developer: data.developer,
         publisher: data.publisher,
@@ -347,20 +360,22 @@ router.post("/", jwtAuth, async (req, res) => {
         tags: data.tags.length ? JSON.stringify(data.tags) : null,
       },
     });
-    await tx.gameProposal.create({
-      data: {
-        kind: "ADD",
-        gameId: game.id,
-        proposerId: req.userId,
-        data: JSON.stringify(data),
-        reason: reason || null,
-        status: "PENDING",
-      },
-    });
+    if (!isAdmin) {
+      await tx.gameProposal.create({
+        data: {
+          kind: "ADD",
+          gameId: game.id,
+          proposerId: req.userId,
+          data: JSON.stringify(data),
+          reason: reason || null,
+          status: "PENDING",
+        },
+      });
+    }
     return game;
   });
 
-  res.status(201).json({ ...parseTags(created), proposalKind: "ADD" });
+  res.status(201).json({ ...parseTags(created), proposalKind: isAdmin ? null : "ADD" });
 });
 
 // 申请编辑既有游戏：POST /api/games/:id/edit-proposal（所有登录用户；管理员可直接编辑无需申请）
@@ -384,13 +399,6 @@ router.post("/:id/edit-proposal", jwtAuth, async (req, res) => {
   if (conflict) {
     return res.status(409).json({ error: "该游戏已存在" });
   }
-  // 同一用户对同一游戏只能有一条待审核编辑申请
-  const dup = await prisma.gameProposal.findFirst({
-    where: { gameId: id, proposerId: req.userId, kind: "EDIT", status: "PENDING" },
-  });
-  if (dup) {
-    return res.status(409).json({ error: "你已提交过该游戏的编辑申请，等待审批中" });
-  }
 
   const data = {
     nameZh: newNameZh,
@@ -403,6 +411,33 @@ router.post("/:id/edit-proposal", jwtAuth, async (req, res) => {
     description: description !== undefined ? description : game.description,
     tags: Array.isArray(tags) ? tags : (game.tags ? JSON.parse(game.tags) : []),
   };
+
+  // 站长/管理员申请编辑直接生效，无需审批
+  if (isAdminRole(req)) {
+    const updated = await prisma.game.update({
+      where: { id },
+      data: {
+        nameZh: data.nameZh,
+        nameEn: data.nameEn,
+        coverImageUrl: data.coverImageUrl,
+        logoImageUrl: data.logoImageUrl,
+        heroImageUrl: data.heroImageUrl,
+        developer: data.developer,
+        publisher: data.publisher,
+        description: data.description,
+        tags: data.tags.length ? JSON.stringify(data.tags) : null,
+      },
+    });
+    return res.status(200).json({ kind: "EDIT", status: "APPROVED", updated: parseTags(updated) });
+  }
+
+  // 同一用户对同一游戏只能有一条待审核编辑申请
+  const dup = await prisma.gameProposal.findFirst({
+    where: { gameId: id, proposerId: req.userId, kind: "EDIT", status: "PENDING" },
+  });
+  if (dup) {
+    return res.status(409).json({ error: "你已提交过该游戏的编辑申请，等待审批中" });
+  }
 
   const proposal = await prisma.gameProposal.create({
     data: {

@@ -1,5 +1,6 @@
 <script setup>
-import { nextTick, onActivated, onDeactivated, onMounted, reactive, ref } from "vue";
+import { nextTick, onActivated, onMounted, reactive, ref } from "vue";
+import { onBeforeRouteLeave } from "vue-router";
 import { fetchReviews } from "@/api/review";
 import ReviewCard from "@/components/ReviewCard.vue";
 import { useLangStore } from "@/stores/lang";
@@ -45,8 +46,10 @@ const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize) || 1);
 onMounted(load);
 
 // —— 列表被 KeepAlive 缓存期间保存/恢复滚动位置 ——
+// 必须在 onBeforeRouteLeave 里读取真实 scrollY：onDeactivated 触发时路由已先滚到顶部，
+// 此时 window.scrollY 已被置 0，会存成错误值。
 const savedScroll = ref(0);
-onDeactivated(() => {
+onBeforeRouteLeave(() => {
   savedScroll.value = window.scrollY || 0;
 });
 onActivated(async () => {
@@ -71,7 +74,7 @@ onActivated(async () => {
     <p v-else-if="reviews.length === 0" class="hint">{{ lang.t("review.list.empty") }}</p>
 
     <div v-else class="cards">
-      <ReviewCard v-for="r in reviews" :key="r.id" :review="r" />
+      <ReviewCard v-for="r in reviews" :key="r.id" :review="r" game-panel />
     </div>
 
     <div v-if="totalPages() > 1" class="pager">
@@ -130,7 +133,7 @@ onActivated(async () => {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: 1fr; /* 详细评测卡片占满整行，逐篇纵向排布 */
   gap: 16px;
 }
 

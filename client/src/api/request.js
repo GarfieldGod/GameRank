@@ -33,4 +33,9 @@ export function extractError(err, fallback = "请求失败") {
   return err?.response?.data?.error || err?.message || fallback;
 }
 
+// 是否为请求超时（axios 超时抛出 code=ECONNABORTED）
+export function isTimeout(err) {
+  return Boolean(err && (err.code === "ECONNABORTED" || /timeout/i.test(err.message || "")));
+}
+
 export default request;

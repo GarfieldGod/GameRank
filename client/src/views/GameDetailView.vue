@@ -127,6 +127,8 @@ async function load() {
   propOpen.value = false;
   propSubmitted.value = false;
   myPendingEdit.value = false;
+  coverLoaded.value = false;
+  heroLoaded.value = false;
   try {
     const data = await fetchGame(route.params.id, {
       page: query.page,
@@ -161,13 +163,22 @@ function cover(url) {
   );
 }
 
-// —— 背景高度自适应：以图片自然高度撑开背景条，卡片上移量与渐变底部随高度变化（与编辑页一致）——
-const heroPull = ref(0);
-function onHeroLoad(e) {
-  heroPull.value = e.currentTarget.clientHeight || 320;
+// —— 背景与卡片完全解耦 ——
+// 背景条绝对定位（不占文档流），左/右出血铺满整屏、位于卡片后台；
+// 卡片作为首个文档流元素自然顶到容器顶部。背景加载/缩放不会推动或拉动卡片，
+// 二者互不干扰，卡片位置始终稳定
+const coverLoaded = ref(false);
+const heroLoaded = ref(false);
+function onCoverLoad() {
+  coverLoaded.value = true;
+}
+function onHeroLoad() {
+  heroLoaded.value = true;
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+});
 // 路由参数变化时重新加载
 watch(() => route.params.id, load);
 </script>
@@ -176,26 +187,30 @@ watch(() => route.params.id, load);
   <div
     class="game-page"
     :class="{ 'flush-nav': !!game?.heroImageUrl }"
-    :style="game?.heroImageUrl ? { '--hero-pull': heroPull + 'px' } : {}"
   >
     <p v-if="loading">{{ lang.t("loading") }}</p>
     <p v-else-if="notFound">{{ lang.t("game.detail.notFound") }}</p>
 
     <template v-else-if="game">
-      <!-- 顶部 Hero 背景条：完整展示背景图（高度随图片自然比例自适应），下沿随图片底部渐变 -->
-      <div
-        v-if="game.heroImageUrl"
-        class="hero-bg"
-      >
+      <!-- 顶部 Hero 背景条：绝对定位、左/右出血铺满整屏，位于卡片后台；
+           高度随图片自然比例自适应，不参与文档流、不影响卡片定位 -->
+      <div v-if="game.heroImageUrl" class="hero-bg">
         <img
           class="hero-bg-img"
+          :class="{ loaded: heroLoaded }"
           :src="game.heroImageUrl"
           :alt="lang.gname(game)"
           @load="onHeroLoad"
         />
       </div>
-      <div class="hero" :class="{ overlap: !!game.heroImageUrl }">
-        <img class="cover" :src="cover(game.coverImageUrl)" :alt="lang.gname(game)" />
+      <div class="hero">
+        <img
+          class="cover"
+          :class="{ loaded: coverLoaded }"
+          :src="cover(game.coverImageUrl)"
+          :alt="lang.gname(game)"
+          @load="onCoverLoad"
+        />
         <div class="info">
           <div class="info-title">
             <h1>{{ primaryName }}</h1>
@@ -329,15 +344,19 @@ watch(() => route.params.id, load);
   position: relative;
 }
 
-/* 仅在有 Hero 背景图时，把容器上移抵消外层 .page 顶部 padding，让背景图紧贴导航栏下方 */
+/* 仅在有 Hero 背景图时，把容器上移抵消外层 .page 顶部 padding。
+   背景条为绝对定位(顶部贴导航)，不随容器下移；但普通流内容需保留 24px 顶部空隙，
+   与返回按钮(top:80px = 导航56 + 24)对齐 */
 .game-page.flush-nav {
   margin-top: -24px;
+  padding-top: 24px;
 }
 
-/* 顶部 Hero 背景条：完整横条，高度随背景图自然比例自适应，下沿渐变到纯色页面背景。
-   置于普通文档流（relative）占位，避免内容被吸顶导航遮挡 */
+/* 顶部 Hero 背景条：绝对定位、左/右出血铺满整屏、位于卡片后台。
+   不参与文档流，因此背景加载/缩放不会推动卡片，卡片位置始终稳定 */
 .hero-bg {
-  position: relative;
+  position: absolute;
+  top: 0;
   left: 50%;
   transform: translateX(-50%);
   width: 100vw;
@@ -350,17 +369,15 @@ watch(() => route.params.id, load);
   display: block;
   width: 100%; /* 宽度始终等于网页宽度 */
   height: auto; /* 高度按图片自身比例，随高度自适应 */
+  /* 图片底部渐隐：不把页面底色烤进渐变（渐变不可被主题过渡插值），
+     而是让图片下沿淡出、露出 body 自身会 0.2s 过渡的 --bg，主题切换即天然同步 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 260px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 260px), transparent 100%);
+  opacity: 0; /* 加载完成后淡入，避免突然显示 */
+  transition: opacity 0.6s ease;
 }
-
-/* 图片最下沿一小段：由透明渐变到页面背景色（轻淡、贴边），不会盖黑整张图 */
-.hero-bg::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 110px;
-  background: linear-gradient(to bottom, transparent, var(--surface));
+.hero-bg-img.loaded {
+  opacity: 1;
 }
 
 .hero {
@@ -377,18 +394,20 @@ watch(() => route.params.id, load);
   flex-wrap: wrap;
 }
 
-/* 有 Hero 背景时，卡片上移到与无背景卡片的顶部位置一致：随背景图实际高度自适应 */
-.hero.overlap {
-  margin-top: calc((var(--hero-pull, 320px)) * -1);
-}
-
 .cover {
   width: 240px;
   max-width: 100%;
   border-radius: 10px;
   object-fit: cover;
-  align-self: stretch; /* 与 info 等高，保证制作/发行公司底部与图片底部对齐 */
+  /* 一开始就按 6:9 预留高度：图片加载前卡片即占位到该高度，加载完成后高度不变，避免突变 */
+  aspect-ratio: 6 / 9;
+  align-self: stretch; /* 信息内容更高时仍拉伸对齐，与 info 等高保证底部对齐 */
   background: var(--surface-2);
+  opacity: 0; /* 加载完成前不显示占位灰块，加载后淡入 */
+  transition: opacity 0.5s ease;
+}
+.cover.loaded {
+  opacity: 1;
 }
 
 .info {
@@ -762,12 +781,12 @@ section h2 {
   margin-top: 22px;
 }
 
-/* 我的评测占满整行；其余评测走多列网格 */
+/* 我的评测与其余评测都占满整行，逐篇纵向排布展示详细内容 */
 .cards.single {
   grid-template-columns: 1fr;
 }
 .cards.other {
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .desc p {
