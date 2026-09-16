@@ -102,6 +102,10 @@ async function onSubmit() {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
 }
 
 .auth-card h2 {
@@ -113,19 +117,21 @@ label {
   flex-direction: column;
   gap: 6px;
   font-size: 14px;
-  color: #374151;
+  color: var(--text-1);
 }
 
 input {
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   font-size: 14px;
+  background: var(--surface);
+  color: var(--text-1);
 }
 
 .err,
 .form-error {
-  color: #dc2626;
+  color: var(--danger);
   font-size: 13px;
 }
 
@@ -134,7 +140,7 @@ input {
   padding: 10px;
   border: none;
   border-radius: 6px;
-  background: #2563eb;
+  background: var(--primary);
   color: #fff;
   font-size: 15px;
   cursor: pointer;
@@ -148,11 +154,11 @@ input {
 .switch {
   text-align: center;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-2);
 }
 
 .switch a {
-  color: #2563eb;
+  color: var(--primary);
   text-decoration: none;
 }
 </style>

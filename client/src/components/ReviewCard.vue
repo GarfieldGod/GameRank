@@ -1,5 +1,5 @@
 <script setup>
-import { coverUrl } from "@/utils/markdown";
+import { coverUrl, reviewCover, gameDisplayName } from "@/utils/markdown";
 import { useLangStore } from "@/stores/lang";
 
 defineProps({
@@ -15,14 +15,11 @@ function formatTime(t) {
 
 <template>
   <RouterLink class="card" :to="`/reviews/${review.id}`">
-    <img class="cover" :src="coverUrl(review.coverImageUrl)" :alt="review.gameName" />
+    <img class="cover" :src="coverUrl(reviewCover(review))" :alt="gameDisplayName(review, lang.isEn)" />
     <div class="body">
       <div class="title-row">
         <h3 class="title">{{ review.title }}</h3>
-        <span class="rating">{{ review.rating }}</span>
-      </div>
-      <div class="tags-row">
-        <span v-for="t in review.tags" :key="t" class="mini-tag">{{ t }}</span>
+        <span class="rating">{{ Number(review.rating).toFixed(1) }}</span>
       </div>
       <div class="meta">
         <span>{{ review.author?.username }}</span>
@@ -34,17 +31,17 @@ function formatTime(t) {
 
 <style scoped>
 .card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
   text-decoration: none;
   color: inherit;
   transition: box-shadow 0.15s;
 }
 
 .card:hover {
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .cover {
@@ -52,7 +49,7 @@ function formatTime(t) {
   height: 150px;
   object-fit: cover;
   display: block;
-  background: #e5e7eb;
+  background: var(--surface-2);
 }
 
 .body {
@@ -71,7 +68,7 @@ function formatTime(t) {
 
 .title {
   font-size: 16px;
-  color: #111827;
+  color: var(--text);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -79,8 +76,8 @@ function formatTime(t) {
 }
 
 .rating {
-  background: #fde68a;
-  color: #92400e;
+  background: var(--score-bg);
+  color: var(--score-text);
   font-weight: 700;
   border-radius: 6px;
   padding: 2px 8px;
@@ -88,24 +85,10 @@ function formatTime(t) {
   white-space: nowrap;
 }
 
-.tags-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.mini-tag {
-  font-size: 12px;
-  background: #f3f4f6;
-  border-radius: 4px;
-  padding: 2px 8px;
-  color: #4b5563;
-}
-
 .meta {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--text-2);
 }
 </style>

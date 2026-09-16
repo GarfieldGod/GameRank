@@ -1,30 +1,108 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
-import { deleteGame, fetchGame } from "@/api/game";
+import { deleteGame, fetchGame, proposeEditGame } from "@/api/game";
+import { extractError } from "@/api/request";
 import ReviewCard from "@/components/ReviewCard.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
+import { useThemeStore } from "@/stores/theme";
 
 const route = useRoute();
 const router = useRouter();
 const lang = useLangStore();
 const auth = useAuthStore();
+const theme = useThemeStore();
 
 const game = ref(null);
 const reviews = ref([]);
 const total = ref(0);
+const countedReviews = ref(0);
+const myReview = ref(null);
 const loading = ref(true);
 const notFound = ref(false);
 const query = reactive({ page: 1 });
 const pageSize = 5;
 
-const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize) || 1);
+// 其余评测（不含我的评测）的分页页数
+const remainingTotal = computed(() => Math.max(0, total.value - (myReview.value ? 1 : 0)));
+const otherTotalPages = () => Math.max(1, Math.ceil(remainingTotal.value / pageSize) || 1);
+
+// 写评测/编辑：我的评测已存在则进入编辑，否则新建并预填该游戏
+function openReviewEditor() {
+  if (!game.value) return;
+  if (myReview.value) {
+    router.push(`/reviews/${myReview.value.id}/edit`);
+  } else {
+    router.push({ path: "/reviews/new", query: { game: lang.gname(game.value) } });
+  }
+}
+
+// 主名按页面语言取（中文页用中文名，英文页用英文名）
+const primaryName = computed(() => lang.gname(game.value));
+// 副名：中文页在下方展示另一种语言的英文名；英文页不显示中文名（避免布局上移动，保留占位）
+const secondaryName = computed(() => {
+  if (!game.value || lang.isEn) return "";
+  return game.value.nameEn || "";
+});
 
 // 管理员可编辑/删除游戏
 const canManage = computed(() => auth.isLoggedIn && auth.isAdmin);
+// 普通用户可申请编辑（管理员直接用编辑，无需申请）
+const canProposeEdit = computed(
+  () => auth.isLoggedIn && !auth.isAdmin && game.value?.status === "APPROVED" && !myPendingEdit.value
+);
 const deleting = ref(false);
 const deleteFailed = ref("");
+// 我的编辑申请状态
+const myPendingEdit = ref(false);
+// 申请编辑表单
+const propOpen = ref(false);
+const propSubmitted = ref(false);
+const propSaving = ref(false);
+const propError = ref("");
+const editForm = reactive({ nameZh: "", nameEn: "", developer: "", publisher: "", description: "", tagsText: "", reason: "" });
+
+function openProposal() {
+  if (!game.value) return;
+  editForm.nameZh = game.value.nameZh || "";
+  editForm.nameEn = game.value.nameEn || "";
+  editForm.developer = game.value.developer || "";
+  editForm.publisher = game.value.publisher || "";
+  editForm.description = game.value.description || "";
+  editForm.tagsText = Array.isArray(game.value.tags) ? game.value.tags.join(", ") : "";
+  editForm.reason = "";
+  propError.value = "";
+  propSubmitted.value = false;
+  propOpen.value = true;
+}
+
+async function submitProposal() {
+  propError.value = "";
+  if (!editForm.nameZh.trim()) {
+    propError.value = lang.t("game.new.nameRequired");
+    return;
+  }
+  propSaving.value = true;
+  try {
+    await proposeEditGame(game.value.id, {
+      nameZh: editForm.nameZh.trim(),
+      nameEn: editForm.nameEn.trim(),
+      developer: editForm.developer.trim(),
+      publisher: editForm.publisher.trim(),
+      description: editForm.description.trim(),
+      tags: editForm.tagsText.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
+      reason: editForm.reason.trim() || undefined,
+    });
+    myPendingEdit.value = true;
+    propOpen.value = false;
+    propSubmitted.value = true;
+  } catch (err) {
+    propError.value = extractError(err, lang.t("game.detail.editProposalFailed"));
+  } finally {
+    propSaving.value = false;
+  }
+}
 
 async function onDelete() {
   if (deleting.value || !game.value) return;
@@ -46,6 +124,9 @@ async function load() {
   notFound.value = false;
   game.value = null;
   reviews.value = [];
+  propOpen.value = false;
+  propSubmitted.value = false;
+  myPendingEdit.value = false;
   try {
     const data = await fetchGame(route.params.id, {
       page: query.page,
@@ -54,6 +135,9 @@ async function load() {
     game.value = data.game;
     reviews.value = data.reviews;
     total.value = data.total;
+    countedReviews.value = data.countedReviews || 0;
+    myReview.value = data.myReview || null;
+    myPendingEdit.value = Boolean(data.myPendingEdit);
   } catch {
     notFound.value = true;
   } finally {
@@ -68,9 +152,19 @@ function goPage(p) {
 
 function cover(url) {
   if (url) return url;
+  const dark = theme.theme === "dark";
+  const fill = dark ? "#2a2f38" : "#e5e7eb";
+  const fg = dark ? "#717a86" : "#9ca3af";
+  const text = lang.isEn ? "No cover" : "暂无封面";
   return "data:image/svg+xml;utf8," + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340"><rect width="100%" height="100%" fill="#e5e7eb"/><text x="50%" y="50%" fill="#9ca3af" font-size="28" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">暂无封面</text></svg>'
+    `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="340"><rect width="100%" height="100%" fill="${fill}"/><text x="50%" y="50%" fill="${fg}" font-size="28" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">${text}</text></svg>`
   );
+}
+
+// —— 背景高度自适应：以图片自然高度撑开背景条，卡片上移量与渐变底部随高度变化（与编辑页一致）——
+const heroPull = ref(0);
+function onHeroLoad(e) {
+  heroPull.value = e.currentTarget.clientHeight || 320;
 }
 
 onMounted(load);
@@ -79,53 +173,147 @@ watch(() => route.params.id, load);
 </script>
 
 <template>
-  <div class="game-page">
+  <div
+    class="game-page"
+    :class="{ 'flush-nav': !!game?.heroImageUrl }"
+    :style="game?.heroImageUrl ? { '--hero-pull': heroPull + 'px' } : {}"
+  >
     <p v-if="loading">{{ lang.t("loading") }}</p>
     <p v-else-if="notFound">{{ lang.t("game.detail.notFound") }}</p>
 
     <template v-else-if="game">
-      <div class="hero">
+      <!-- 顶部 Hero 背景条：完整展示背景图（高度随图片自然比例自适应），下沿随图片底部渐变 -->
+      <div
+        v-if="game.heroImageUrl"
+        class="hero-bg"
+      >
+        <img
+          class="hero-bg-img"
+          :src="game.heroImageUrl"
+          :alt="lang.gname(game)"
+          @load="onHeroLoad"
+        />
+      </div>
+      <div class="hero" :class="{ overlap: !!game.heroImageUrl }">
         <img class="cover" :src="cover(game.coverImageUrl)" :alt="lang.gname(game)" />
         <div class="info">
-          <h1>{{ lang.gname(game) }}</h1>
-          <div v-if="canManage" class="admin-bar">
-            <RouterLink class="btn-edit" :to="`/games/${game.id}/edit`">{{ lang.t("game.detail.edit") }}</RouterLink>
-            <button class="btn-delete" :disabled="deleting" @click="onDelete">{{ lang.t("game.detail.delete") }}</button>
-            <span v-if="deleteFailed" class="err">{{ deleteFailed }}</span>
+          <div class="info-title">
+            <h1>{{ primaryName }}</h1>
+            <div class="title-alt" :class="{ hidden: !secondaryName }">{{ secondaryName }}</div>
           </div>
-          <div class="score-box">
+
+          <p class="intro-title">{{ lang.t("game.detail.desc") }}</p>
+          <p class="desc">{{ game.description || "—" }}</p>
+
+          <div class="info-footer">
+            <div class="facts">
+              <div class="fact">
+                <span class="fact-label">{{ lang.t("game.detail.developer") }}</span>
+                <span class="fact-value">{{ game.developer || lang.t("game.detail.unknown") }}</span>
+              </div>
+              <div class="fact">
+                <span class="fact-label">{{ lang.t("game.detail.publisher") }}</span>
+                <span class="fact-value">{{ game.publisher || lang.t("game.detail.unknown") }}</span>
+              </div>
+            </div>
+
+            <div class="info-bottom">
+              <div v-if="canManage" class="admin-bar">
+                <RouterLink class="btn-edit" :to="`/games/${game.id}/edit`">{{ lang.t("game.detail.edit") }}</RouterLink>
+                <button class="btn-delete" :disabled="deleting" @click="onDelete">{{ lang.t("game.detail.delete") }}</button>
+                <span v-if="deleteFailed" class="err">{{ deleteFailed }}</span>
+              </div>
+              <div v-else-if="canProposeEdit" class="prop-actions">
+                <button class="prop-btn" @click="openProposal">{{ lang.t("game.detail.proposeEdit") }}</button>
+              </div>
+              <p v-else-if="auth.isLoggedIn && !auth.isAdmin && myPendingEdit" class="edit-pending">
+                {{ lang.t("game.detail.editPendingHint") }}
+              </p>
+              <p v-if="propSubmitted" class="edit-ok">{{ lang.t("game.detail.editProposalSubmitted") }}</p>
+            </div>
+          </div>
+
+          <div class="score-pill">
             <template v-if="game.score != null">
-              <span class="score">{{ game.score }}</span>
-              <span class="score-label">{{ lang.t("review.detail.unit") }}</span>
+              <span class="sc-num">{{ game.score.toFixed(1) }}</span>
             </template>
-            <span v-else class="score-na">{{ lang.t("game.detail.noScore") }}</span>
+            <span v-else class="sc-na">{{ lang.t("game.detail.noScore") }}</span>
           </div>
-          <dl class="facts">
-            <div class="fact"><dt>{{ lang.t("game.detail.developer") }}</dt><dd>{{ game.developer || lang.t("game.detail.unknown") }}</dd></div>
-            <div class="fact"><dt>{{ lang.t("game.detail.publisher") }}</dt><dd>{{ game.publisher || lang.t("game.detail.unknown") }}</dd></div>
-          </dl>
-          <div class="tags">
-            <span v-for="t in game.tags" :key="t" class="tag">{{ t }}</span>
+          <div v-if="game.score != null" class="counted-reviews">
+            {{ lang.t("game.detail.countedReviews", { n: countedReviews }) }}
           </div>
         </div>
       </div>
 
-      <section class="desc">
-        <h2>{{ lang.t("game.detail.desc") }}</h2>
-        <p>{{ game.description || "—" }}</p>
+      <!-- 标签放在游戏信息模块下方，横向排列 -->
+      <div v-if="game.tags && game.tags.length" class="tags-row">
+        <span v-for="t in game.tags" :key="t" class="tag">{{ lang.tag(t) }}</span>
+      </div>
+
+      <section v-if="propOpen && game" class="prop-form">
+        <h2>{{ lang.t("game.detail.editProposalTitle") }}</h2>
+        <p class="prop-hint">{{ lang.t("game.detail.editProposalHint") }}</p>
+        <div class="pf-grid">
+          <label>{{ lang.t("game.new.nameZh") }} <span class="req">*</span>
+            <input v-model="editForm.nameZh" />
+          </label>
+          <label>{{ lang.t("game.new.nameEn") }}
+            <input v-model="editForm.nameEn" />
+          </label>
+        </div>
+        <div class="pf-grid">
+          <label>{{ lang.t("game.new.developer") }}
+            <input v-model="editForm.developer" />
+          </label>
+          <label>{{ lang.t("game.new.publisher") }}
+            <input v-model="editForm.publisher" />
+          </label>
+        </div>
+        <label>{{ lang.t("game.new.tags") }}
+          <input v-model="editForm.tagsText" />
+        </label>
+        <label>{{ lang.t("game.new.desc") }}
+          <textarea v-model="editForm.description" rows="4"></textarea>
+        </label>
+        <label>{{ lang.t("game.detail.proposeEditReason") }}
+          <textarea v-model="editForm.reason" rows="2" :placeholder="lang.t('game.detail.proposeEditReasonPh')"></textarea>
+        </label>
+        <p v-if="propError" class="err">{{ propError }}</p>
+        <div class="pf-actions">
+          <button class="pf-submit" :disabled="propSaving" @click="submitProposal">
+            {{ propSaving ? lang.t("common.saving") : lang.t("game.detail.submitProposal") }}
+          </button>
+          <button class="pf-cancel" @click="propOpen = false">{{ lang.t("game.detail.cancelEditProposal") }}</button>
+        </div>
       </section>
 
       <section class="reviews-section">
-        <h2>{{ lang.t("game.detail.reviews", { n: total }) }}</h2>
-        <p v-if="reviews.length === 0" class="hint">{{ lang.t("game.detail.noReviews") }}</p>
-        <div v-else class="cards">
+        <div class="reviews-head">
+          <h2>{{ lang.t("game.detail.reviews", { n: total }) }}</h2>
+          <button type="button" class="write-review-btn" @click="openReviewEditor">
+            {{ myReview ? lang.t("game.detail.edit") : lang.t("game.detail.writeReview") }}
+          </button>
+        </div>
+
+        <!-- 我的评测：置顶展示 -->
+        <template v-if="myReview">
+          <div class="block-title">{{ lang.t("game.detail.myReviews") }}</div>
+          <div class="cards single">
+            <ReviewCard :key="'my-' + myReview.id" :review="myReview" />
+          </div>
+          <div v-if="reviews.length" class="block-title divider">{{ lang.t("game.detail.otherReviews") }}</div>
+        </template>
+
+        <p v-if="!myReview && reviews.length === 0" class="hint">{{ lang.t("game.detail.noReviews") }}</p>
+        <p v-else-if="myReview && reviews.length === 0" class="hint">{{ lang.t("game.detail.noReviews") }}</p>
+        <div v-if="reviews.length" class="cards other">
           <ReviewCard v-for="r in reviews" :key="r.id" :review="r" />
         </div>
 
-        <div v-if="totalPages() > 1" class="pager">
+        <div v-if="otherTotalPages() > 1" class="pager">
           <button :disabled="query.page <= 1" @click="goPage(query.page - 1)">{{ lang.t("common.prev") }}</button>
-          <span>{{ query.page }} / {{ totalPages() }}</span>
-          <button :disabled="query.page >= totalPages()" @click="goPage(query.page + 1)">{{ lang.t("common.next") }}</button>
+          <span>{{ query.page }} / {{ otherTotalPages() }}</span>
+          <button :disabled="query.page >= otherTotalPages()" @click="goPage(query.page + 1)">{{ lang.t("common.next") }}</button>
         </div>
       </section>
     </template>
@@ -138,37 +326,245 @@ watch(() => route.params.id, load);
   flex-direction: column;
   gap: 24px;
   padding-bottom: 40px;
+  position: relative;
+}
+
+/* 仅在有 Hero 背景图时，把容器上移抵消外层 .page 顶部 padding，让背景图紧贴导航栏下方 */
+.game-page.flush-nav {
+  margin-top: -24px;
+}
+
+/* 顶部 Hero 背景条：完整横条，高度随背景图自然比例自适应，下沿渐变到纯色页面背景。
+   置于普通文档流（relative）占位，避免内容被吸顶导航遮挡 */
+.hero-bg {
+  position: relative;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  line-height: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-bg-img {
+  display: block;
+  width: 100%; /* 宽度始终等于网页宽度 */
+  height: auto; /* 高度按图片自身比例，随高度自适应 */
+}
+
+/* 图片最下沿一小段：由透明渐变到页面背景色（轻淡、贴边），不会盖黑整张图 */
+.hero-bg::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 110px;
+  background: linear-gradient(to bottom, transparent, var(--surface));
 }
 
 .hero {
+  position: relative;
+  z-index: 1;
+  margin-top: 0;
   display: flex;
+  align-items: stretch; /* 左右两列底部对齐 */
   gap: 24px;
   padding: 20px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: #fff;
+  background: var(--surface);
   flex-wrap: wrap;
 }
 
+/* 有 Hero 背景时，卡片上移到与无背景卡片的顶部位置一致：随背景图实际高度自适应 */
+.hero.overlap {
+  margin-top: calc((var(--hero-pull, 320px)) * -1);
+}
+
 .cover {
-  width: 260px;
+  width: 240px;
   max-width: 100%;
   border-radius: 10px;
   object-fit: cover;
-  align-self: flex-start;
+  align-self: stretch; /* 与 info 等高，保证制作/发行公司底部与图片底部对齐 */
+  background: var(--surface-2);
 }
 
 .info {
   flex: 1;
   min-width: 220px;
+  position: relative; /* score-pill 锚点 */
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.info h1 {
+.info-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 66px; /* 统一标题区高度，避免不同名称导致 UI 高度不一 */
+  padding-right: 210px; /* 为右上角分数框预留，避免标题与其重叠 */
+}
+
+.info-title h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 44px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.title-alt {
+  font-size: 20px;
+  color: var(--text-3); /* 比主名更浅的效果 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 英文页不显示中文名时，保留副名占位高度，避免下方内容上移 */
+.title-alt.hidden {
+  visibility: hidden;
+}
+
+/* 分数：放大版彩色方框（宽x2、高x4），位于游戏信息右上角 */
+.score-pill {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 176px;
+  height: 120px;
+  background: var(--score-bg);
+  color: var(--score-text);
+  border-radius: 14px;
+}
+
+.score-pill .sc-num {
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.score-pill .sc-na {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* 计入评测数：位于分数框正下方 */
+.counted-reviews {
+  position: absolute;
+  top: 128px; /* 分数框(120px)下方 */
+  right: 0;
+  width: 176px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* 卡片内简介的小标题：与上方的名字距离翻倍（由 info 基础间距 10px 之上再叠加 10px） */
+.intro-title {
+  margin: 10px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding-right: 210px; /* 避开右上角分数框 */
+}
+
+/* 简介：固定最小/最大行高，超出 4 行截断，保证不同游戏 UI 一致 */
+.desc {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-1);
+  min-height: 76px; /* ≈3 行 */
+  padding-right: 210px; /* 避开右上角分数框 */
+  display: -webkit-box;
+  -webkit-line-clamp: 4; /* 最多 4 行，超出截断 */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 底部行：包含制作/发行公司与右下角操作按钮，整体顶到卡片底部，
+   从而与左侧 cover 图片的底部对齐 */
+.info-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 制作公司、发行公司：水平排列 */
+.facts {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.fact {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.fact-label {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.fact-value {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 26ch;
+}
+
+/* 右下角操作按钮：作为 info-footer 的右侧项，和制作/发行公司处于同一底部行 */
+.info-bottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 标签行：位于游戏信息模块下方，横向排列。
+   去除卡片视觉（透明背景、无边框），并用负外边距抵消上下 24px 间隙，
+   使标签行与上方信息卡、下方评测卡之间的间距为 0px */
+.tags-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  margin: -24px 0; /* 抵消 game-page 的 24px 间隙，实现 0px */
+}
+
+.tag {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
 }
 
 .admin-bar {
@@ -178,6 +574,107 @@ watch(() => route.params.id, load);
   flex-wrap: wrap;
 }
 
+.prop-actions {
+  display: flex;
+  gap: 10px;
+}
+.prop-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.prop-btn:hover {
+  background: var(--primary);
+  color: #fff;
+}
+.edit-pending {
+  color: var(--warn-text);
+  font-size: 14px;
+  margin: 0;
+}
+.edit-ok {
+  color: var(--success);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* 申请编辑表单 */
+.prop-form {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.prop-form h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.prop-hint {
+  color: var(--text-2);
+  font-size: 14px;
+  margin: 0;
+}
+.prop-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-1);
+  flex: 1;
+}
+.prop-form .req {
+  color: var(--danger);
+}
+.prop-form input,
+.prop-form textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text-1);
+  resize: vertical;
+}
+.pf-grid {
+  display: flex;
+  gap: 12px;
+}
+.pf-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pf-submit {
+  padding: 10px 22px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.pf-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.pf-cancel {
+  padding: 10px 18px;
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
 .btn-edit,
 .btn-delete {
   padding: 6px 16px;
@@ -185,23 +682,23 @@ watch(() => route.params.id, load);
   font-size: 14px;
   cursor: pointer;
   text-decoration: none;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-1);
 }
 
 .btn-edit:hover {
-  border-color: #2563eb;
-  color: #2563eb;
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .btn-delete {
-  color: #dc2626;
-  border-color: #fca5a5;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .btn-delete:hover {
-  background: #fef2f2;
+  background: var(--danger-bg);
 }
 
 .btn-delete:disabled {
@@ -210,66 +707,8 @@ watch(() => route.params.id, load);
 }
 
 .err {
-  color: #dc2626;
+  color: var(--danger);
   font-size: 14px;
-}
-
-.score-box {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-}
-
-.score {
-  font-size: 44px;
-  font-weight: 800;
-  color: #b45309;
-}
-
-.score-label {
-  color: #6b7280;
-}
-
-.score-na {
-  font-size: 20px;
-  color: #9ca3af;
-}
-
-.facts {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-}
-
-.fact {
-  display: flex;
-  gap: 8px;
-  font-size: 14px;
-}
-
-.fact dt {
-  color: #6b7280;
-  min-width: 56px;
-}
-
-.fact dd {
-  margin: 0;
-  color: #111827;
-}
-
-.tags {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.tag {
-  background: #eef2ff;
-  color: #4338ca;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 13px;
 }
 
 section h2 {
@@ -277,14 +716,68 @@ section h2 {
   font-size: 18px;
 }
 
+/* 评测区：提升层级 + 不透明表面背景，避免被上方 hero 背景条盖住标题或透出背景 */
+.reviews-section {
+  position: relative;
+  z-index: 1;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+/* 评测区头部：标题左侧，写评测按钮右上角 */
+.reviews-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.reviews-head h2 {
+  margin: 0;
+}
+
+.write-review-btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.write-review-btn:hover {
+  background: var(--primary-hover);
+}
+
+.block-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin: 0 0 12px;
+}
+.block-title.divider {
+  margin-top: 22px;
+}
+
+/* 我的评测占满整行；其余评测走多列网格 */
+.cards.single {
+  grid-template-columns: 1fr;
+}
+.cards.other {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
 .desc p {
-  color: #374151;
+  color: var(--text-1);
   line-height: 1.7;
   margin: 0;
 }
 
 .hint {
-  color: #6b7280;
+  color: var(--text-2);
   text-align: center;
   padding: 30px 0;
 }
@@ -305,10 +798,11 @@ section h2 {
 
 .pager button {
   padding: 6px 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
+  color: var(--text-1);
 }
 
 .pager button:disabled {

@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Game Score</title>
+    <script>
+      // 渲染前根据已存偏好设置主题，避免闪烁；默认暗色
+      try {
+        var t = localStorage.getItem("game-review-theme");
+        if (t !== "dark" && t !== "light") t = "dark";
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

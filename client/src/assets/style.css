@@ -4,7 +4,74 @@
   box-sizing: border-box;
 }
 
+/* ===== 主题 token（亮色为默认）===== */
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --hover: #f3f4f6;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --text: #111827;
+  --text-1: #374151;
+  --text-2: #6b7280;
+  --text-3: #9ca3af;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-soft: #eff6ff;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --success: #059669;
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --warn-bg: #fffbeb;
+  --warn-border: #f59e0b;
+  --warn-text: #92400e;
+  --score-bg: #fde68a;
+  --score-text: #92400e;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --surface: #181b21;
+  --surface-2: #1e222a;
+  --hover: #232830;
+  --border: #2a2f38;
+  --border-strong: #3a4250;
+  --text: #e7eaf0;
+  --text-1: #c4cad4;
+  --text-2: #99a1ad;
+  --text-3: #717a86;
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-soft: #1c2838;
+  --danger: #f87171;
+  --danger-bg: #2a1a1d;
+  --success: #34d399;
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --warn-bg: #241d0d;
+  --warn-border: #b8860b;
+  --warn-text: #fbbf24;
+  --score-bg: #46320f;
+  --score-text: #fcd34d;
+}
+
+html {
+  background: var(--bg);
+}
+
 body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--text-1);
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+a {
+  color: inherit;
 }

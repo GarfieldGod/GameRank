@@ -38,3 +38,21 @@ export function ownerOnly(req, res, next) {
   }
   next();
 }
+
+// 可选登录：携带有效令牌则解析登录态，否则放行（req.userId / req.role 可能为空）
+export function optionJwtAuth(req, _res, next) {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (token) {
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      req.userId = payload.userId;
+      req.role = payload.role || "USER";
+    } catch {
+      // 令牌无效视为未登录
+      req.userId = undefined;
+      req.role = undefined;
+    }
+  }
+  next();
+}

@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import messages from "@/i18n";
+import { translateTag } from "@/utils/tags";
 
 const KEY = "gs-lang";
 const DEFAULT = "zh";
@@ -28,6 +29,10 @@ export const useLangStore = defineStore("lang", {
         state.lang === "en"
           ? game?.nameEn || game?.nameZh || ""
           : game?.nameZh || game?.nameEn || "";
+    },
+    // 标签按当前语言显示
+    tag(state) {
+      return (t) => translateTag(t, state.lang === "en");
     },
     isEn: (state) => state.lang === "en",
   },

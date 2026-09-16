@@ -57,11 +57,11 @@ const router = createRouter({
       component: () => import("@/views/GameDetailView.vue"),
     },
     {
-      // 添加游戏：仅管理员
+      // 添加游戏：所有登录用户均可提交，待审批后公开展示
       path: "/games/new",
       name: "game-new",
       component: () => import("@/views/GameEditorView.vue"),
-      meta: { requiresAuth: true, adminOnly: true },
+      meta: { requiresAuth: true },
     },
     {
       // 编辑游戏：仅管理员
@@ -71,11 +71,11 @@ const router = createRouter({
       meta: { requiresAuth: true, adminOnly: true },
     },
     {
-      // 站长管理页：仅站长 OWNER
+      // 管理页：站长与管理员均可进入
       path: "/admin",
       name: "admin",
       component: () => import("@/views/AdminView.vue"),
-      meta: { requiresAuth: true, ownerOnly: true },
+      meta: { requiresAuth: true, adminOnly: true },
     },
     {
       // 个人主页：任何人可访问
@@ -95,6 +95,13 @@ const router = createRouter({
       redirect: "/",
     },
   ],
+  // 恢复滚动：后退/前进时还原浏览器保存的位置；
+  // 列表页由 KeepAlive 缓存的组件通过 onActivated 自行恢复滚动，这里不对其置顶，避免覆盖
+  scrollBehavior(to, _from, savedPosition) {
+    if (savedPosition) return savedPosition;
+    if (to.name === "game-list" || to.name === "review-list") return false;
+    return { top: 0 };
+  },
 });
 
 // 守卫：

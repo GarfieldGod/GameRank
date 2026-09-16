@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
+import { useThemeStore } from "@/stores/theme";
 import { fetchUser, updateProfile } from "@/api/user";
 import { uploadImage } from "@/api/review";
 import { extractError } from "@/api/request";
@@ -11,6 +12,7 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const lang = useLangStore();
+const theme = useThemeStore();
 
 const targetUserId = () => Number(route.params.userId);
 
@@ -24,8 +26,11 @@ const avatarInput = ref(null);
 
 function avatarUrl(url) {
   if (url) return url;
+  const dark = theme.theme === "dark";
+  const fill = dark ? "#2a2f38" : "#e5e7eb";
+  const fg = dark ? "#717a86" : "#9ca3af";
   return "data:image/svg+xml;utf8," + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="100%" height="100%" fill="#e5e7eb"/><text x="50%" y="50%" fill="#9ca3af" font-size="64" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">?</text></svg>'
+    `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="100%" height="100%" fill="${fill}"/><text x="50%" y="50%" fill="${fg}" font-size="64" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">?</text></svg>`
   );
 }
 
@@ -138,14 +143,15 @@ onMounted(async () => {
   height: 80px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border);
 }
 
 .upload-btn {
   padding: 8px 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
+  color: var(--text-1);
   cursor: pointer;
 }
 
@@ -158,25 +164,27 @@ label {
   flex-direction: column;
   gap: 6px;
   font-size: 14px;
-  color: #374151;
+  color: var(--text-1);
 }
 
 input,
 textarea {
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   font-size: 14px;
   font-family: inherit;
+  background: var(--surface);
+  color: var(--text-1);
 }
 
 input:disabled {
-  background: #f3f4f6;
-  color: #9ca3af;
+  background: var(--surface-2);
+  color: var(--text-3);
 }
 
 .err {
-  color: #dc2626;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -188,7 +196,7 @@ input:disabled {
 
 .primary {
   padding: 10px 22px;
-  background: #2563eb;
+  background: var(--primary);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -200,7 +208,7 @@ input:disabled {
 }
 
 .cancel {
-  color: #6b7280;
+  color: var(--text-2);
   text-decoration: none;
 }
 </style>

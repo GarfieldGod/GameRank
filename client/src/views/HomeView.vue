@@ -15,6 +15,6 @@ h1 {
   margin-bottom: 12px;
 }
 .muted {
-  color: #6b7280;
+  color: var(--text-2);
 }
 </style>

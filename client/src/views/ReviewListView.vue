@@ -1,21 +1,19 @@
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { nextTick, onActivated, onDeactivated, onMounted, reactive, ref } from "vue";
 import { fetchReviews } from "@/api/review";
 import ReviewCard from "@/components/ReviewCard.vue";
 import { useLangStore } from "@/stores/lang";
 
 const lang = useLangStore();
+defineOptions({ name: "ReviewListView" });
 
 const reviews = ref([]);
 const total = ref(0);
 const loading = ref(false);
 
-// 支持从 URL 参数带入初始 tag（例如标签跳转）
-const query = reactive({ keyword: "", tag: "", page: 1 });
+// 支持从 URL 参数带入初始筛选（keyword only）
+const query = reactive({ keyword: "", page: 1 });
 const pageSize = 6;
-
-// 常见标签候选，点击即筛选
-const tagOptions = ["RPG", "动作", "冒险", "开放世界", "独立", "射击", "策略", "竞速"];
 
 async function load() {
   loading.value = true;
@@ -24,7 +22,6 @@ async function load() {
       page: query.page,
       pageSize,
       keyword: query.keyword.trim() || undefined,
-      tag: query.tag || undefined,
     });
     reviews.value = data.list;
     total.value = data.total;
@@ -38,12 +35,6 @@ function onSearch() {
   load();
 }
 
-function selectTag(tag) {
-  query.tag = query.tag === tag ? "" : tag;
-  query.page = 1;
-  load();
-}
-
 function goPage(p) {
   query.page = p;
   load();
@@ -52,6 +43,18 @@ function goPage(p) {
 const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize) || 1);
 
 onMounted(load);
+
+// —— 列表被 KeepAlive 缓存期间保存/恢复滚动位置 ——
+const savedScroll = ref(0);
+onDeactivated(() => {
+  savedScroll.value = window.scrollY || 0;
+});
+onActivated(async () => {
+  await nextTick();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.scrollTo(0, savedScroll.value);
+  }));
+});
 </script>
 
 <template>
@@ -62,19 +65,6 @@ onMounted(load);
         <button type="submit">{{ lang.t("review.list.searchSubmit") }}</button>
       </form>
       <RouterLink class="create-btn" to="/reviews/new">{{ lang.t("review.list.write") }}</RouterLink>
-    </div>
-
-    <div class="tags">
-      <button
-        v-for="t in tagOptions"
-        :key="t"
-        class="tag"
-        :class="{ active: query.tag === t }"
-        @click="selectTag(t)"
-      >
-        {{ t }}
-      </button>
-      <button v-if="query.tag" class="tag clear" @click="selectTag(query.tag)">{{ lang.t("review.list.clear") }}</button>
     </div>
 
     <p v-if="loading" class="hint">{{ lang.t("loading") }}</p>
@@ -114,8 +104,10 @@ onMounted(load);
 .search input {
   flex: 1;
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-1);
 }
 
 .search button,
@@ -123,42 +115,15 @@ onMounted(load);
   padding: 10px 18px;
   border: none;
   border-radius: 6px;
-  background: #2563eb;
+  background: var(--primary);
   color: #fff;
   cursor: pointer;
   text-decoration: none;
   font-size: 14px;
 }
 
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.tag {
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  cursor: pointer;
-  font-size: 13px;
-  color: #374151;
-}
-
-.tag.active {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #fff;
-}
-
-.tag.clear {
-  color: #dc2626;
-  border-color: #fca5a5;
-}
-
 .hint {
-  color: #6b7280;
+  color: var(--text-2);
   text-align: center;
   padding: 40px 0;
 }
@@ -178,10 +143,11 @@ onMounted(load);
 
 .pager button {
   padding: 6px 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
+  color: var(--text-1);
 }
 
 .pager button:disabled {

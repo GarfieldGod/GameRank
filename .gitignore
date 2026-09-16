@@ -27,6 +27,8 @@ server/prisma/dev.db-journal
 
 # ---- 运行时文件 ----
 server/uploads/
+server/data/
+server/backups/
 *.pid
 *.lock
 

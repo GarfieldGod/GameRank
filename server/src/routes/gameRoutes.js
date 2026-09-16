@@ -1,6 +1,7 @@
 import { Router } from "express";
 import prisma from "../prismaClient.js";
-import { jwtAuth, adminOnly } from "../middleware/auth.js";
+import { jwtAuth, adminOnly, optionJwtAuth } from "../middleware/auth.js";
+import { sgdbSearch, fetchAssets, downloadCover, downloadThumb } from "../services/sgdb.js";
 
 const router = Router();
 
@@ -9,33 +10,116 @@ function parseTags(game) {
   return game;
 }
 
-// 游戏列表：GET /api/games（可选 keyword= 按中文名或英文名搜索；tag= 按标签筛选）
-router.get("/", async (req, res) => {
+// 为一组游戏实时计算均分（仅统计已发布、未软删除、计入评分的评测），
+// 覆盖返回对象中的 score，避免依赖可能过期或为空的存档列。
+async function attachScores(games) {
+  if (!games.length) return games;
+  const nameSet = new Set();
+  for (const g of games) {
+    if (g.nameEn) nameSet.add(g.nameEn);
+    if (g.nameZh) nameSet.add(g.nameZh);
+  }
+  const rows = await prisma.gameReview.findMany({
+    where: {
+      status: "PUBLISHED",
+      deletedAt: null,
+      counted: true,
+      ...(nameSet.size ? { gameName: { in: [...nameSet] } } : { gameName: "\u0000" }),
+    },
+    select: { gameName: true, rating: true },
+  });
+  const byName = new Map();
+  for (const r of rows) {
+    if (!byName.has(r.gameName)) byName.set(r.gameName, []);
+    byName.get(r.gameName).push(r.rating);
+  }
+  return games.map((g) => {
+    const ratings = [];
+    for (const key of [g.nameEn, g.nameZh]) {
+      if (key && byName.has(key)) ratings.push(...byName.get(key));
+    }
+    if (!ratings.length) return { ...g, score: null };
+    const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+    return { ...g, score: Math.round(avg * 10) / 10 };
+  });
+}
+
+// 申请新增游戏提交后的快照：data 字段为 JSON 字符串
+function isAdminRole(req) {
+  return req.role === "ADMIN" || req.role === "OWNER";
+}
+
+function normalizeName(n) {
+  return (n || "").toString().trim().toLowerCase();
+}
+
+// 名称软去重：英文名 / 中文名任一项命中即视为重复（忽略大小写与首尾空白、过滤软删除）。
+// excludeIds：更新/编辑时排除自身。仅返回首个冲突游戏或 null。
+async function findNameConflict(nameEn, nameZh, excludeIds = []) {
+  const en = normalizeName(nameEn);
+  const zh = normalizeName(nameZh);
+  if (!en && !zh) return null;
+  const candidates = await prisma.game.findMany({
+    where: {
+      deletedAt: null,
+      ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
+    },
+    select: { id: true, nameZh: true, nameEn: true, status: true, submitterId: true },
+  });
+  return (
+    candidates.find(
+      (g) =>
+        (en && normalizeName(g.nameEn) === en) || (zh && normalizeName(g.nameZh) === zh)
+    ) || null
+  );
+}
+
+// 游戏列表：GET /api/games
+// 可选 keyword= 按中文名或英文名搜索；tag= 按标签筛选
+// page/pageSize 分页流式加载（默认每页 50）；携带有效登录态时，额外返回本人“审核中”的新增游戏
+router.get("/", optionJwtAuth, async (req, res) => {
   const keyword = (req.query.keyword || "").trim();
   const tag = (req.query.tag || "").trim();
+  const myId = req.userId;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize) || 50));
 
-  const where = {};
+  // 公开：全部已通过游戏；若已登录，追加本人待审核的新增游戏；均过滤软删除（不可见）
+  const group = [
+    { status: "APPROVED", deletedAt: null },
+    ...(myId ? [{ status: "PENDING", submitterId: myId, deletedAt: null }] : []),
+  ];
+  const where = { OR: group };
   if (keyword) {
-    where.OR = [
-      { nameZh: { contains: keyword } },
-      { nameEn: { contains: keyword } },
-    ];
+    where.OR = group.map((g) => ({
+      ...g,
+      OR: [
+        { nameZh: { contains: keyword } },
+        { nameEn: { contains: keyword } },
+      ],
+    }));
   }
   // tags 以 JSON 数组字符串存储（如 ["ARPG","动作"]），用带引号包含匹配实现精确标签过滤
   if (tag) {
-    where.tags = { contains: JSON.stringify(tag) };
+    const tagged = group.map((g) => ({ ...g, tags: { contains: JSON.stringify(tag) } }));
+    where.OR = tagged;
   }
 
-  const games = await prisma.game.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-  });
-  res.json(games.map(parseTags));
+  const [total, games] = await Promise.all([
+    prisma.game.count({ where }),
+    prisma.game.findMany({
+      where,
+      orderBy: [{ score: "desc" }, { createdAt: "desc" }], // 优先按全站均分降序，同分按新游戏优先
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  res.json({ list: await attachScores(games.map(parseTags)), total, page, pageSize, hasMore: page * pageSize < total });
 });
 
 // 全部标签及数量：GET /api/games/tags（需在 /:id 之前定义）
 router.get("/tags", async (_req, res) => {
-  const games = await prisma.game.findMany({ select: { tags: true } });
+  const games = await prisma.game.findMany({ where: { status: "APPROVED", deletedAt: null }, select: { tags: true } });
   const counts = new Map();
   for (const g of games) {
     if (!g.tags) continue;
@@ -58,27 +142,115 @@ router.get("/tags", async (_req, res) => {
   res.json(tags);
 });
 
+// 从 SteamGridDB 按名称搜索游戏（返回候选，需用户再选择）：GET /api/games/sgdb/search?q=
+// 返回 { games: [{ id, name }] }——id 为 SteamGridDB 游戏 id，后续用它拉取三类素材
+router.get("/sgdb/search", jwtAuth, async (req, res) => {
+  const q = (req.query.q || "").trim();
+  if (!q) return res.status(400).json({ error: "缺少搜索词" });
+  try {
+    const results = (await sgdbSearch(q)) || [];
+    res.json({ games: results.slice(0, 8).map((r) => ({ id: r.id, name: r.name })) });
+  } catch (err) {
+    res.status(502).json({ error: "SteamGridDB 查询失败：" + (err?.message || "unknown") });
+  }
+});
+
+// 拉取某游戏的三类素材：GET /api/games/sgdb/assets?gridId=
+// 返回 { grids, logos, heroes }——每类至多 20 张 { url, thumb }
+router.get("/sgdb/assets", jwtAuth, async (req, res) => {
+  const gridId = Number(req.query.gridId);
+  if (!gridId) return res.status(400).json({ error: "缺少 gridId" });
+  try {
+    res.json(await fetchAssets(gridId));
+  } catch (err) {
+    res.status(502).json({ error: "SteamGridDB 素材加载失败：" + (err?.message || "unknown") });
+  }
+});
+
+// 将选中的 SteamGridDB 图片落地到本地：POST /api/games/sgdb/download
+// body: { url }——下载到 uploads/sgdb 并返回本地路径 { url }
+router.post("/sgdb/download", jwtAuth, async (req, res) => {
+  const { url } = req.body ?? {};
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return res.status(400).json({ error: "缺少合法的图片 URL" });
+  }
+  try {
+    const local = await downloadCover(url);
+    res.json({ url: local });
+  } catch (err) {
+    res.status(502).json({ error: "图片下载失败：" + (err?.message || "unknown") });
+  }
+});
+
+// 缩略图本地代理【公开】：<img src> 无法携带 JWT，故不带鉴权。
+// 仅允许 SteamGridDB CDN，下载到本地 thumbs 缓存后重定向，规避浏览器外链被挡。
+// GET /api/games/sgdb/proxy?url=
+router.get("/sgdb/proxy", async (req, res) => {
+  const url = String(req.query.url || "");
+  if (!/^https:\/\/(cdn2|cdn)\.steamgriddb\.com\//i.test(url)) {
+    return res.status(403).end();
+  }
+  try {
+    const local = await downloadThumb(url);
+    return res.redirect(local || url);
+  } catch {
+    return res.redirect(url);
+  }
+});
+
 // 游戏详情（含其评测，分页）：GET /api/games/:id?page=&pageSize=
+// 待审游戏仅申请人本人与管理员可见，其他人返回 404
 // 评测通过游戏中文名/英文名与评测表 gameName 匹配聚合
-router.get("/:id", async (req, res) => {
+router.get("/:id", optionJwtAuth, async (req, res) => {
   const id = Number(req.params.id);
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 5));
 
   const game = await prisma.game.findUnique({ where: { id } });
-  if (!game) {
+  if (!game || game.deletedAt) {
+    return res.status(404).json({ error: "game not found" });
+  }
+  // 待审批游戏：只有申请人本人或管理员可访问
+  const canSeePending = game.submitterId === req.userId || isAdminRole(req);
+  if (game.status === "PENDING" && !canSeePending) {
     return res.status(404).json({ error: "game not found" });
   }
 
-  const whereGame = { OR: [{ gameName: game.nameZh }, { gameName: game.nameEn }] };
-  const [total, list] = await Promise.all([
+  // 一个游戏的评测可能以中文名或英文名作为 gameName 发布，名称任一项命中即关联
+  const nameKeys = [game.nameEn, game.nameZh].filter(Boolean);
+  const nameOr = nameKeys.map((n) => ({ gameName: n }));
+  const whereGame = { OR: nameOr };
+
+  // 当前登录用户是否已对该游戏写过评测：若有则返回并在评测列表中排除，避免重复展示
+  let myReview = null;
+  let listWhere = whereGame;
+  if (req.userId) {
+    myReview = await prisma.gameReview.findFirst({
+      where: {
+        authorId: req.userId,
+        status: "PUBLISHED",
+        deletedAt: null,
+        OR: nameOr,
+      },
+      include: { author: { select: { id: true, username: true, avatar: true } } },
+    });
+    if (myReview) {
+      listWhere = { ...whereGame, NOT: { id: myReview.id } };
+    }
+  }
+
+  const [total, list, countedReviews] = await Promise.all([
     prisma.gameReview.count({ where: whereGame }),
     prisma.gameReview.findMany({
-      where: whereGame,
+      where: listWhere,
       include: { author: { select: { id: true, username: true, avatar: true } } },
       orderBy: { publishedAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
+    }),
+    // 计入评分的评测数量：已发布、未软删除、且未标记为“不计入”的评测
+    prisma.gameReview.count({
+      where: { ...whereGame, status: "PUBLISHED", deletedAt: null, counted: true },
     }),
   ]);
 
@@ -87,16 +259,45 @@ router.get("/:id", async (req, res) => {
     tags: r.tags ? JSON.parse(r.tags) : [],
   }));
 
-  res.json({ game: parseTags(game), reviews: shapedReviews, total, page, pageSize });
+  // 当前登录用户是否已有该游戏的“待审核编辑申请”
+  let myPendingEdit = false;
+  if (req.userId) {
+    const pending = await prisma.gameProposal.findFirst({
+      where: { gameId: id, proposerId: req.userId, kind: "EDIT", status: "PENDING" },
+      select: { id: true },
+    });
+    myPendingEdit = Boolean(pending);
+  }
+
+  const shapedMyReview = myReview
+    ? { ...myReview, tags: myReview.tags ? JSON.parse(myReview.tags) : [] }
+    : null;
+
+  const shapedSingle = (await attachScores([game]))[0];
+
+  res.json({
+    game: parseTags(shapedSingle),
+    reviews: shapedReviews,
+    myReview: shapedMyReview,
+    total,
+    countedReviews,
+    page,
+    pageSize,
+    myPendingEdit,
+  });
 });
 
-// 创建游戏：POST /api/games（仅管理员）
-// body: { nameZh, nameEn, coverImageUrl?, score?, developer?, publisher?, description?, tags? }
-router.post("/", jwtAuth, adminOnly, async (req, res) => {
-  const { nameZh, nameEn, coverImageUrl, score, developer, publisher, description, tags } = req.body ?? {};
+// 创建游戏（申请新增）：POST /api/games（所有登录用户）
+// 先生成一条“新增游戏申请”(kind=ADD)，同时创建处于 PENDING 状态的游戏
+// body: { nameZh, nameEn?, coverImageUrl?, score?, developer?, publisher?, description?, tags?, reason? }
+router.post("/", jwtAuth, async (req, res) => {
+  const { nameZh, nameEn, coverImageUrl, logoImageUrl, heroImageUrl, score, developer, publisher, description, tags, reason } = req.body ?? {};
 
-  if (!nameZh) {
-    return res.status(400).json({ error: "中文名不能为空" });
+  // 英文名为必填项，中文名可空
+  const newNameEn = (nameEn || "").trim();
+  const newNameZh = (nameZh || "").trim() || null;
+  if (!newNameEn) {
+    return res.status(400).json({ error: "英文名不能为空" });
   }
   let numScore = null;
   if (score != null && score !== "") {
@@ -106,40 +307,131 @@ router.post("/", jwtAuth, adminOnly, async (req, res) => {
     }
   }
 
-  const exists = await prisma.game.findUnique({ where: { nameZh } });
-  if (exists) {
+  // 名称软去重：中英文名任一项命中即视为已有游戏（含待审批游戏）
+  const conflict = await findNameConflict(newNameEn, newNameZh);
+  if (conflict) {
+    if (conflict.status === "PENDING" && conflict.submitterId === req.userId) {
+      return res.status(409).json({ error: "你已提交过该游戏的申请，等待审批中" });
+    }
     return res.status(409).json({ error: "该游戏已存在" });
   }
 
-  const game = await prisma.game.create({
-    data: {
-      nameZh,
-      nameEn: nameEn || nameZh,
-      coverImageUrl,
-      score: numScore,
-      developer,
-      publisher,
-      description: description || "",
-      tags: tags ? JSON.stringify(tags) : null,
-    },
+  const data = {
+    nameZh: newNameZh,
+    nameEn: newNameEn,
+    coverImageUrl: coverImageUrl || null,
+    logoImageUrl: logoImageUrl || null,
+    heroImageUrl: heroImageUrl || null,
+    score: numScore,
+    developer: developer || null,
+    publisher: publisher || null,
+    description: description || "",
+    tags: Array.isArray(tags) ? tags : [],
+  };
+
+  // 事务：创建待审游戏 + 新增申请记录
+  const created = await prisma.$transaction(async (tx) => {
+    const game = await tx.game.create({
+      data: {
+        nameZh: data.nameZh,
+        nameEn: data.nameEn,
+        coverImageUrl: data.coverImageUrl,
+        logoImageUrl: data.logoImageUrl,
+        heroImageUrl: data.heroImageUrl,
+        score: data.score,
+        status: "PENDING", // 新建游戏一律待审批
+        submitterId: req.userId,
+        developer: data.developer,
+        publisher: data.publisher,
+        description: data.description,
+        tags: data.tags.length ? JSON.stringify(data.tags) : null,
+      },
+    });
+    await tx.gameProposal.create({
+      data: {
+        kind: "ADD",
+        gameId: game.id,
+        proposerId: req.userId,
+        data: JSON.stringify(data),
+        reason: reason || null,
+        status: "PENDING",
+      },
+    });
+    return game;
   });
-  res.status(201).json(parseTags(game));
+
+  res.status(201).json({ ...parseTags(created), proposalKind: "ADD" });
 });
 
-// 更新游戏：PUT /api/games/:id（仅管理员）
-// body: { nameZh, nameEn?, coverImageUrl?, score?, developer?, publisher?, description?, tags? }
+// 申请编辑既有游戏：POST /api/games/:id/edit-proposal（所有登录用户；管理员可直接编辑无需申请）
+// body: { nameZh, nameEn?, coverImageUrl?, developer?, publisher?, description?, tags?, reason? }
+router.post("/:id/edit-proposal", jwtAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { nameZh, nameEn, coverImageUrl, logoImageUrl, heroImageUrl, developer, publisher, description, tags, reason } = req.body ?? {};
+
+  const game = await prisma.game.findUnique({ where: { id } });
+  if (!game || game.status !== "APPROVED") {
+    return res.status(404).json({ error: "game not found" });
+  }
+  // 英文名为必填项，中文名可空
+  const newNameEn = (nameEn && nameEn.trim()) || null;
+  const newNameZh = (nameZh || "").trim() || null;
+  if (!newNameEn) {
+    return res.status(400).json({ error: "英文名不能为空" });
+  }
+  // 名称软去重（排除目标游戏自身）
+  const conflict = await findNameConflict(newNameEn, newNameZh, [id]);
+  if (conflict) {
+    return res.status(409).json({ error: "该游戏已存在" });
+  }
+  // 同一用户对同一游戏只能有一条待审核编辑申请
+  const dup = await prisma.gameProposal.findFirst({
+    where: { gameId: id, proposerId: req.userId, kind: "EDIT", status: "PENDING" },
+  });
+  if (dup) {
+    return res.status(409).json({ error: "你已提交过该游戏的编辑申请，等待审批中" });
+  }
+
+  const data = {
+    nameZh: newNameZh,
+    nameEn: newNameEn,
+    coverImageUrl: coverImageUrl !== undefined ? coverImageUrl : game.coverImageUrl,
+    logoImageUrl: logoImageUrl !== undefined ? logoImageUrl : game.logoImageUrl,
+    heroImageUrl: heroImageUrl !== undefined ? heroImageUrl : game.heroImageUrl,
+    developer: developer !== undefined ? developer : game.developer,
+    publisher: publisher !== undefined ? publisher : game.publisher,
+    description: description !== undefined ? description : game.description,
+    tags: Array.isArray(tags) ? tags : (game.tags ? JSON.parse(game.tags) : []),
+  };
+
+  const proposal = await prisma.gameProposal.create({
+    data: {
+      kind: "EDIT",
+      gameId: id,
+      proposerId: req.userId,
+      data: JSON.stringify(data),
+      reason: reason || null,
+      status: "PENDING",
+    },
+  });
+  res.status(201).json({ id: proposal.id, kind: "EDIT", status: proposal.status });
+});
+
+// 更新游戏：PUT /api/games/:id（仅管理员直接编辑）
 router.put("/:id", jwtAuth, adminOnly, async (req, res) => {
   const id = Number(req.params.id);
-  const { nameZh, nameEn, coverImageUrl, score, developer, publisher, description, tags } = req.body ?? {};
+  const { nameZh, nameEn, coverImageUrl, logoImageUrl, heroImageUrl, score, developer, publisher, description, tags } = req.body ?? {};
 
   const game = await prisma.game.findUnique({ where: { id } });
   if (!game) {
     return res.status(404).json({ error: "game not found" });
   }
 
-  const newNameZh = typeof nameZh === "string" ? nameZh.trim() : "";
-  if (!newNameZh) {
-    return res.status(400).json({ error: "中文名不能为空" });
+  // 英文名为必填项，中文名可空
+  const newNameEn = typeof nameEn === "string" ? nameEn.trim() : "";
+  const newNameZh = (typeof nameZh === "string" ? nameZh.trim() : "") || null;
+  if (!newNameEn) {
+    return res.status(400).json({ error: "英文名不能为空" });
   }
 
   let numScore = null;
@@ -150,20 +442,20 @@ router.put("/:id", jwtAuth, adminOnly, async (req, res) => {
     }
   }
 
-  // 中文名唯一性校验（排除自身）
-  if (newNameZh !== game.nameZh) {
-    const exists = await prisma.game.findUnique({ where: { nameZh: newNameZh } });
-    if (exists) {
-      return res.status(409).json({ error: "该游戏已存在" });
-    }
+  // 名称软去重（排除自身）
+  const conflict = await findNameConflict(newNameEn, newNameZh, [id]);
+  if (conflict) {
+    return res.status(409).json({ error: "该游戏已存在" });
   }
 
   const updated = await prisma.game.update({
     where: { id },
     data: {
       nameZh: newNameZh,
-      nameEn: nameEn || game.nameEn,
+      nameEn: newNameEn,
       coverImageUrl: coverImageUrl !== undefined ? coverImageUrl : game.coverImageUrl,
+      logoImageUrl: logoImageUrl !== undefined ? logoImageUrl : game.logoImageUrl,
+      heroImageUrl: heroImageUrl !== undefined ? heroImageUrl : game.heroImageUrl,
       score: numScore,
       developer,
       publisher,
@@ -174,15 +466,33 @@ router.put("/:id", jwtAuth, adminOnly, async (req, res) => {
   res.json(parseTags(updated));
 });
 
-// 删除游戏：DELETE /api/games/:id（仅管理员）
+// 删除游戏：DELETE /api/games/:id（需登录且管理员；站长=硬删除，管理员=软删除标记不可见）
 router.delete("/:id", jwtAuth, adminOnly, async (req, res) => {
   const id = Number(req.params.id);
   const game = await prisma.game.findUnique({ where: { id } });
   if (!game) {
     return res.status(404).json({ error: "game not found" });
   }
-  await prisma.game.delete({ where: { id } });
+  const rejectReason = req.role === "OWNER" ? "游戏被站长删除" : "游戏不可见";
+  await prisma.gameProposal.updateMany({
+    where: { gameId: id, status: "PENDING" },
+    data: { status: "REJECTED", rejectReason, reviewedAt: new Date() },
+  });
+
+  if (req.role === "OWNER" || game.deletedAt) {
+    // 硬删除：先解绑引用该游戏的评测，避免外键约束失败，评测文章本身保留
+    if (req.role === "OWNER") {
+      await prisma.gameReview.updateMany({ where: { gameId: id }, data: { gameId: null } });
+    }
+    await prisma.game.delete({ where: { id } });
+  } else {
+    // 管理员软删除：标记为不可见，站长可在管理页恢复或真正删除
+    if (!game.deletedAt) {
+      await prisma.game.update({ where: { id }, data: { deletedAt: new Date() } });
+    }
+  }
   res.status(204).end();
 });
 
+export { isAdminRole, parseTags };
 export default router;

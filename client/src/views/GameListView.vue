@@ -1,20 +1,41 @@
 <script setup>
-import { onMounted, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from "vue";
+import { RouterLink, useRoute } from "vue-router";
 import { fetchGames, fetchGameTags } from "@/api/game";
+import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
+import { useThemeStore } from "@/stores/theme";
 
 const lang = useLangStore();
+const theme = useThemeStore();
+const auth = useAuthStore();
+const route = useRoute();
+defineOptions({ name: "GameListView" });
 const games = ref([]);
 const tagOptions = ref([]);
 const selectedTag = ref("");
 const keyword = ref("");
-const loading = ref(true);
+const loading = ref(true); // 首次加载
+const loadingMore = ref(false); // 流式加载中
+const page = ref(1);
+const pageSize = 50;
+const total = ref(0);
+const hasMore = computed(() => games.value.length < total.value);
+const debounceTimer = ref(null);
+// 添加游戏后跳回时的提示（GET /games?added=1）
+const justAdded = ref(Boolean(route.query.added));
+
+function dismissAdded() {
+  justAdded.value = false;
+}
 
 function cover(url) {
   if (url) return url;
+  const dark = theme.theme === "dark";
+  const fill = dark ? "#2a2f38" : "#e5e7eb";
+  const fg = dark ? "#717a86" : "#9ca3af";
   return "data:image/svg+xml;utf8," + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160"><rect width="100%" height="100%" fill="#e5e7eb"/><text x="50%" y="50%" fill="#9ca3af" font-size="18" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">?</text></svg>'
+    `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160"><rect width="100%" height="100%" fill="${fill}"/><text x="50%" y="50%" fill="${fg}" font-size="18" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">?</text></svg>`
   );
 }
 
@@ -22,16 +43,52 @@ function parseGame(g) {
   return { ...g, tags: Array.isArray(g.tags) ? g.tags : (g.tags ? JSON.parse(g.tags) : []) };
 }
 
-// 加载游戏列表：有搜索关键字时搜索库中全部游戏，否则按选中标签过滤
-async function load() {
+// 当前请求参数（搜索关键词或选中标签）
+function currentParams(no) {
+  const p = { page: no, pageSize: pageSize };
+  const kw = keyword.value.trim();
+  if (kw) p.keyword = kw;
+  else if (selectedTag.value) p.tag = selectedTag.value;
+  return p;
+}
+
+// 加载游戏列表：reset=true 重置为第一页，否则追加下一页
+async function load(reset = true) {
+  if (reset) {
+    loading.value = true;
+    loadingMore.value = false;
+    games.value = [];
+    page.value = 1;
+  }
   try {
-    const kw = keyword.value.trim();
-    const params = kw ? { keyword: kw } : selectedTag.value ? { tag: selectedTag.value } : undefined;
-    const data = await fetchGames(params);
-    games.value = data.map(parseGame);
+    const data = await fetchGames(currentParams(page.value));
+    total.value = data.total;
+    if (reset) {
+      games.value = data.list.map(parseGame);
+    } else {
+      const seen = new Set(games.value.map((g) => g.id));
+      games.value = [...games.value, ...data.list.map(parseGame).filter((g) => !seen.has(g.id))];
+    }
   } finally {
     loading.value = false;
+    loadingMore.value = false;
   }
+}
+
+// 流式加载下一页：滑动到底部时触发，一次只加载 50 个
+async function loadMore() {
+  if (loading.value || loadingMore.value || !hasMore.value) return;
+  loadingMore.value = true;
+  page.value += 1;
+  await load(false);
+}
+
+// 滚动监听：接近底部时追加下一页
+function onScroll() {
+  if (loadingMore.value) return;
+  const doc = document.documentElement;
+  const atBottom = window.innerHeight + window.scrollY >= doc.scrollHeight - 300;
+  if (atBottom) loadMore();
 }
 
 // 加载标签列表（含数量）
@@ -47,23 +104,46 @@ function selectTag(tag) {
   if (selectedTag.value === tag && !keyword.value) return;
   selectedTag.value = tag;
   keyword.value = ""; // 切换标签时清除搜索
-  load();
+  load(true);
 }
 
-// 搜索库中全部游戏：清除标签筛选
-function onSearch() {
-  selectedTag.value = "";
-  load();
-}
+// 实时搜索：输入停顿 400ms 后触发，搜索时自动清除标签筛选
+watch(keyword, () => {
+  clearTimeout(debounceTimer.value);
+  debounceTimer.value = setTimeout(() => {
+    if (keyword.value.trim()) selectedTag.value = "";
+    load(true);
+  }, 400);
+});
 
 function clearSearch() {
+  clearTimeout(debounceTimer.value);
   keyword.value = "";
-  load();
+  selectedTag.value = "";
+  load(true);
 }
 
 onMounted(() => {
-  load();
+  load(true);
   loadTags();
+  window.addEventListener("scroll", onScroll, { passive: true });
+});
+
+// —— 列表被 KeepAlive 缓存期间保存/恢复滚动位置 ——
+const savedScroll = ref(0);
+onDeactivated(() => {
+  savedScroll.value = window.scrollY || 0;
+});
+onActivated(async () => {
+  await nextTick();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.scrollTo(0, savedScroll.value);
+  }));
+});
+
+onBeforeUnmount(() => {
+  clearTimeout(debounceTimer.value);
+  window.removeEventListener("scroll", onScroll);
 });
 </script>
 
@@ -89,41 +169,58 @@ onMounted(() => {
           :class="{ active: selectedTag === t.tag }"
           @click="selectTag(t.tag)"
         >
-          <span class="tag-name">{{ t.tag }}</span>
+          <span class="tag-name">{{ lang.tag(t.tag) }}</span>
           <span class="count">{{ t.count }}</span>
         </button>
       </aside>
 
       <div class="main">
-        <form class="search-bar" @submit.prevent="onSearch">
+        <div class="search-bar">
           <input v-model="keyword" :placeholder="lang.t('games.searchPlaceholder')" />
-          <button type="submit">{{ lang.t("games.search") }}</button>
-          <button v-if="keyword" type="button" @click="clearSearch">
+          <button v-if="keyword" type="button" class="clear" @click="clearSearch">
             {{ lang.t("games.clearSearch") }}
           </button>
-        </form>
+          <RouterLink v-if="auth.isLoggedIn" class="apply-add" to="/games/new">
+            {{ lang.t("games.applyAdd") }}
+          </RouterLink>
+        </div>
+
+        <p v-if="justAdded" class="added-banner">
+          {{ lang.t("games.addedPending") }}
+          <button type="button" class="close" @click="dismissAdded">×</button>
+        </p>
 
         <p v-if="loading" class="hint">{{ lang.t("loading") }}</p>
-        <p v-else-if="games.length === 0" class="hint">
-          {{ keyword ? lang.t("games.noMatch") : lang.t("games.empty") }}
+        <p v-else-if="games.length === 0" class="hint empty">
+          <template v-if="keyword">{{ lang.t("games.noMatch") }}</template>
+          <template v-else>{{ lang.t("games.emptyQ") }}</template>
+          <RouterLink class="add-link" to="/games/new">{{ lang.t("games.addNew") }}</RouterLink>{{ lang.t("games.noMatchSuffix") }}
         </p>
 
         <div v-else class="grid">
           <div v-for="g in games" :key="g.id" class="card">
             <RouterLink class="card-link" :to="`/game/${g.id}`">
-              <img class="cover" :src="cover(g.coverImageUrl)" :alt="lang.gname(g)" />
+              <img class="cover" :src="cover(g.logoImageUrl || g.coverImageUrl || g.heroImageUrl)" :alt="lang.gname(g)" />
             </RouterLink>
             <div class="body">
-              <RouterLink class="row" :to="`/game/${g.id}`" style="text-decoration: none; color: inherit">
-                <h3>{{ lang.gname(g) }}</h3>
-                <span v-if="g.score != null" class="score">{{ g.score }}</span>
-              </RouterLink>
+              <h3 class="gname">
+                <RouterLink :to="`/game/${g.id}`" :title="lang.gname(g)">{{ lang.gname(g) }}</RouterLink>
+              </h3>
               <div class="tags">
-                <span v-for="t in g.tags" :key="t" class="tag">{{ t }}</span>
+                <span v-for="t in g.tags.slice(0, 3)" :key="t" class="tag">{{ lang.tag(t) }}</span>
+                <span v-if="g.tags.length > 3" class="tag more">+{{ g.tags.length - 3 }}</span>
               </div>
+              <span v-if="g.score != null" class="score">{{ g.score.toFixed(1) }}</span>
             </div>
           </div>
         </div>
+
+        <p v-if="loadingMore" class="hint load-more">
+          {{ lang.t("loading") }}
+        </p>
+        <p v-else-if="!loading && games.length && !hasMore" class="hint load-more">
+          {{ lang.t("games.loadedAll") }}
+        </p>
       </div>
     </div>
   </div>
@@ -141,7 +238,7 @@ h1 {
 }
 
 .muted {
-  color: #6b7280;
+  color: var(--text-2);
   margin: 0;
 }
 
@@ -159,9 +256,9 @@ h1 {
   flex-direction: column;
   gap: 4px;
   padding: 14px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--surface);
   position: sticky;
   top: 76px;
   max-height: calc(100vh - 96px);
@@ -171,7 +268,7 @@ h1 {
 .sidebar-title {
   margin: 0 6px 8px;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-2);
   font-weight: 600;
 }
 
@@ -184,33 +281,33 @@ h1 {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #374151;
+  color: var(--text-1);
   font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
 
 .tag-item:hover {
-  background: #f3f4f6;
+  background: var(--hover);
 }
 
 .tag-item.active {
-  background: #eef2ff;
-  color: #4338ca;
+  background: var(--primary-soft);
+  color: var(--primary);
   font-weight: 600;
 }
 
 .tag-item .count {
   font-size: 12px;
-  color: #9ca3af;
-  background: #f3f4f6;
+  color: var(--text-3);
+  background: var(--hover);
   border-radius: 8px;
   padding: 1px 7px;
 }
 
 .tag-item.active .count {
-  background: #e0e7ff;
-  color: #4338ca;
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .main {
@@ -229,56 +326,120 @@ h1 {
   flex: 1;
   min-width: 0;
   padding: 9px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 14px;
+  color: var(--text-1);
+  background: var(--surface);
 }
 
 .search-bar input:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--primary);
 }
 
 .search-bar button {
   padding: 8px 16px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #374151;
+  background: var(--surface);
+  color: var(--text-1);
   font-size: 14px;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .search-bar button:hover {
-  border-color: #2563eb;
-  color: #2563eb;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.apply-add {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.apply-add:hover {
+  background: var(--primary-hover);
 }
 
 .hint {
-  color: #6b7280;
+  color: var(--text-2);
   text-align: center;
   padding: 30px 0;
+}
+
+.load-more {
+  padding: 16px 0 4px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+/* 添加游戏后回跳的提示条 */
+.added-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.added-banner .close {
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+/* 空状态里的「我来添加」链接：蓝色、悬停下划线 */
+.hint.empty {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.add-link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.add-link:hover {
+  text-decoration: underline;
 }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
+  align-items: start; /* 每张卡片保持自身高度，使分数底部精确对齐本卡片标签底部 */
 }
 
 .card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   transition: box-shadow 0.15s;
 }
 
 .card:hover {
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .card-link {
@@ -290,48 +451,78 @@ h1 {
   height: 150px;
   object-fit: cover;
   display: block;
-  background: #e5e7eb;
+  background: var(--surface-2);
 }
 
 .body {
+  position: relative; /* 作为分数条绝对定位的参照 */
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.row h3 {
+.gname {
   margin: 0;
   font-size: 16px;
+  padding-right: 64px; /* 为右侧放大的分数块留出空间，避免长名重叠 */
+  min-width: 0; /* 允许内部截断，撑破 grid 单元格 */
+}
+
+.gname a {
+  display: block;
+  text-decoration: none;
+  color: var(--text-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis; /* 超长不换行，用 … 收尾 */
+}
+
+.gname a:hover {
+  color: var(--primary);
 }
 
 .score {
-  background: #fde68a;
-  color: #92400e;
+  position: absolute;
+  right: 14px;
+  top: 12px; /* 顶部对齐游戏名顶部 */
+  bottom: 12px; /* 底部对齐标签行底部（body 内边距底即标签行底） */
+  width: 56px; /* 按比例加宽 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--score-bg);
+  color: var(--score-text);
   font-weight: 700;
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 19px; /* 按比例放大数字 */
 }
 
 .tags {
   display: flex;
+  flex-wrap: nowrap; /* 单行展示，避免英文标签超长时换行导致卡片高度不一 */
   gap: 6px;
-  flex-wrap: wrap;
+  width: calc(100% - 78px); /* 限制宽度，标签不会延伸至分数区域 */
+  overflow: hidden; /* 超出部分裁切隐藏，但标签仍保留在数据中，仍可按标签找到该游戏 */
+  min-height: 24px; /* 无标签时也占一行高度，保证卡片高度一致 */
+  align-items: center;
 }
 
 .tag {
   font-size: 12px;
-  background: #f3f4f6;
+  background: var(--surface-2);
   border-radius: 4px;
   padding: 2px 8px;
-  color: #4b5563;
+  color: var(--text-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tag.more {
+  color: var(--text-3);
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  flex-shrink: 0;
 }
 
 /* 窄屏时筛选栏横向铺开 */

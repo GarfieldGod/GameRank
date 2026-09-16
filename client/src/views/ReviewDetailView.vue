@@ -2,7 +2,8 @@
 import { computed, ref } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
 import { fetchReview, deleteReview } from "@/api/review";
-import { coverUrl, renderMarkdown } from "@/utils/markdown";
+import { coverUrl, renderMarkdown, reviewCover, gameDisplayName } from "@/utils/markdown";
+import { aspectLabel, aspectColor } from "@/utils/aspects";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 
@@ -16,6 +17,12 @@ const loading = ref(true);
 const notFound = ref(false);
 
 const html = computed(() => renderMarkdown(review.value?.content || ""));
+const params = computed(() => (Array.isArray(review.value?.ratingParams) ? review.value.ratingParams : []));
+// 综合得分固定显示 1 位小数
+const ratingText = computed(() => {
+  const r = review.value?.rating;
+  return r == null ? "" : Number(r).toFixed(1);
+});
 
 // 当前登录用户是否是作者
 const isAuthor = computed(
@@ -60,16 +67,13 @@ load();
     <p v-else-if="notFound">{{ lang.t("review.detail.notFound") }}</p>
 
     <template v-else-if="review">
-      <img class="cover" :src="coverUrl(review.coverImageUrl)" :alt="review.gameName" />
+      <img class="cover" :src="coverUrl(reviewCover(review))" :alt="gameDisplayName(review, lang.isEn)" />
 
       <div class="head">
         <h1>{{ review.title }}</h1>
         <div class="head-meta">
-          <span class="game">{{ review.gameName }}</span>
-          <span class="rating">{{ review.rating }} {{ lang.t("review.detail.unit") }}</span>
-        </div>
-        <div class="tags">
-          <span v-for="t in review.tags" :key="t" class="tag">{{ t }}</span>
+          <span class="game">{{ gameDisplayName(review, lang.isEn) }}</span>
+          <span class="rating">{{ ratingText }} {{ lang.t("review.detail.unit") }}</span>
         </div>
         <div class="author">
           {{ lang.t("review.detail.authorBy", { name: review.author?.username }) }}
@@ -86,6 +90,25 @@ load();
           <button class="btn danger" @click="onDelete">{{ lang.t("review.detail.delete") }}</button>
         </div>
       </div>
+
+      <section v-if="params.length" class="aspects">
+        <h2>{{ lang.t("review.detail.aspects") }} <span class="aspects-total">{{ ratingText }}</span></h2>
+        <ul class="aspect-list">
+          <li v-for="(p, i) in params" :key="i" class="aspect">
+            <span class="aspect-dot" :style="{ background: aspectColor(p.aspect) }"></span>
+            <div class="aspect-body">
+              <div class="aspect-head">
+                <span class="aspect-name">{{ aspectLabel(p.aspect, lang.isEn) }}</span>
+                <span class="aspect-score">
+                  {{ Number(p.score).toFixed(1) }}
+                  <em class="aspect-weight">{{ p.weight }}%</em>
+                </span>
+              </div>
+              <p class="aspect-content">{{ p.content }}</p>
+            </div>
+          </li>
+        </ul>
+      </section>
 
       <!-- eslint-disable-next-line vue/no-v-html -->
       <article class="markdown" v-html="html"></article>
@@ -106,6 +129,7 @@ load();
   max-height: 360px;
   object-fit: cover;
   border-radius: 12px;
+  background: var(--surface-2);
 }
 
 .head {
@@ -127,43 +151,108 @@ load();
 
 .game {
   font-size: 15px;
-  color: #4b5563;
+  color: var(--text-1);
 }
 
 .rating {
-  background: #fde68a;
-  color: #92400e;
+  background: var(--score-bg);
+  color: var(--score-text);
   font-weight: 700;
   border-radius: 8px;
   padding: 3px 10px;
 }
 
-.tags {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.tag {
-  background: #eef2ff;
-  color: #4338ca;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 13px;
-}
-
 .author {
-  color: #6b7280;
+  color: var(--text-2);
   font-size: 14px;
 }
 
 .updated {
-  color: #9ca3af;
+  color: var(--text-3);
 }
 
 .actions {
   display: flex;
   gap: 10px;
+}
+
+.aspects {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  background: var(--surface);
+}
+.aspects h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+.aspects-total {
+  color: var(--score-text);
+  background: var(--score-bg);
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 2px 10px;
+}
+.aspect-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.aspect {
+  display: flex;
+  gap: 12px;
+}
+.aspect-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.aspect-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.aspect-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.aspect-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.aspect-score {
+  color: var(--warn-text);
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+.aspect-weight {
+  font-style: normal;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+.aspect-content {
+  margin: 0;
+  color: var(--text-1);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .btn {
@@ -176,12 +265,12 @@ load();
 }
 
 .btn.edit {
-  background: #2563eb;
+  background: var(--primary);
   color: #fff;
 }
 
 .btn.danger {
-  background: #ef4444;
+  background: var(--danger);
   color: #fff;
 }
 </style>
@@ -206,14 +295,15 @@ load();
   margin: 0.6em 0;
 }
 .markdown code {
-  background: #f3f4f6;
+  background: var(--surface-2);
+  color: var(--text-1);
   padding: 2px 5px;
   border-radius: 4px;
   font-size: 0.9em;
 }
 .markdown pre {
-  background: #111827;
-  color: #f9fafb;
+  background: var(--surface-2);
+  color: var(--text-1);
   padding: 14px;
   border-radius: 8px;
   overflow-x: auto;
@@ -223,9 +313,9 @@ load();
   padding: 0;
 }
 .markdown blockquote {
-  border-left: 4px solid #e5e7eb;
+  border-left: 4px solid var(--border-strong);
   padding-left: 12px;
-  color: #6b7280;
+  color: var(--text-2);
   margin: 0.6em 0;
 }
 .markdown img {

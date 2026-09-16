@@ -1,14 +1,32 @@
 <script setup>
 import { computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useAuthStore, displayName } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
+import { useThemeStore } from "@/stores/theme";
 
+const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const lang = useLangStore();
+const theme = useThemeStore();
 
 const userDisplay = computed(() => displayName(auth.user));
+
+// 顶层页集合：处于这些页面时不显示返回箭头
+const HUB = new Set(["home", "game-list", "review-list"]);
+// 是否显示返回箭头：非顶层页显示；自己的主页隐藏、别人的主页显示
+const showBack = computed(() => {
+  if (route.name === "user-profile") {
+    const isOwn = auth.isLoggedIn && auth.user?.id != null && Number(route.params.userId) === auth.user.id;
+    return !isOwn;
+  }
+  return !HUB.has(route.name);
+});
+
+function onBack() {
+  router.back();
+}
 
 function onLogout() {
   auth.logout();
@@ -18,14 +36,28 @@ function onLogout() {
 // 头像：无头像时用默认占位
 function avatarUrl(url) {
   if (url) return url;
+  const dark = theme.theme === "dark";
+  const rect = dark ? "#2a2f38" : "#cbd5e1";
+  const fg = dark ? "#717a86" : "#ffffff";
   return "data:image/svg+xml;utf8," + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="100%" height="100%" fill="#cbd5e1"/><text x="50%" y="54%" fill="#fff" font-size="36" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">G</text></svg>'
+    `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="100%" height="100%" fill="${rect}"/><text x="50%" y="54%" fill="${fg}" font-size="36" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">G</text></svg>`
   );
 }
 </script>
 
 <template>
   <nav class="navbar">
+    <button
+      v-if="showBack"
+      class="back-btn"
+      type="button"
+      :title="lang.isEn ? 'Back' : '返回'"
+      aria-label="返回"
+      @click="onBack"
+    >
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15 4l-8 8 8 8z"/></svg>
+    </button>
+
     <div class="side left">
       <RouterLink class="brand" to="/">Game Score</RouterLink>
     </div>
@@ -38,8 +70,7 @@ function avatarUrl(url) {
 
     <div class="side right">
       <template v-if="auth.isLoggedIn">
-        <RouterLink v-if="auth.isAdmin" class="btn-add" to="/games/new">{{ lang.t("nav.addGame") }}</RouterLink>
-        <RouterLink v-if="auth.isOwner" class="btn-manage" to="/admin">{{ lang.t("nav.manage") }}</RouterLink>
+        <RouterLink v-if="auth.isAdmin" class="btn-manage" to="/admin">{{ lang.t("nav.manage") }}</RouterLink>
 
         <div class="user-menu">
           <RouterLink class="user-trigger" :to="`/user/${auth.user?.id}`">
@@ -55,11 +86,20 @@ function avatarUrl(url) {
           </div>
         </div>
 
+        <button class="theme-btn" @click="theme.toggle()" :title="theme.theme === 'dark' ? '切换到亮色' : '切换到暗色'" aria-label="切换主题">
+          <svg class="icon-sun" v-if="theme.theme === 'dark'" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0-16a1 1 0 0 1 1 1v1a1 1 0 0 1-2 0V2a1 1 0 0 1 1-1zM2 12a1 1 0 0 1 1-1h1a1 1 0 0 1 0 2H3a1 1 0 0 1-1-1zm18 0a1 1 0 0 1 1-1h1a1 1 0 0 1 0 2h-1a1 1 0 0 1-1-1zM12 21a1 1 0 0 1 1 1v1a1 1 0 0 1-2 0v-1a1 1 0 0 1 1-1zM4.2 4.2a1 1 0 0 1 1.4 0l.7.7a1 1 0 1 1-1.4 1.4l-.7-.7a1 1 0 0 1 0-1.4zm13.4 13.4a1 1 0 0 1 1.4 0l.7.7a1 1 0 0 1-1.4 1.4l-.7-.7a1 1 0 0 1 0-1.4zM19.8 4.2a1 1 0 0 1 0 1.4l-.7.7a1 1 0 1 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0zM6.3 17.6a1 1 0 0 1 0 1.4l-.7.7a1 1 0 1 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0z"/></svg>
+          <svg class="icon-moon" v-else viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+
         <button class="lang-btn" @click="lang.toggle()">{{ lang.isEn ? "中文" : "EN" }}</button>
       </template>
       <template v-else>
         <RouterLink class="btn-link" to="/login">{{ lang.t("nav.login") }}</RouterLink>
         <RouterLink class="btn-primary" to="/register">{{ lang.t("nav.register") }}</RouterLink>
+        <button class="theme-btn" @click="theme.toggle()" :title="theme.theme === 'dark' ? '切换到亮色' : '切换到暗色'" aria-label="切换主题">
+          <svg class="icon-sun" v-if="theme.theme === 'dark'" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0-16a1 1 0 0 1 1 1v1a1 1 0 0 1-2 0V2a1 1 0 0 1 1-1zM2 12a1 1 0 0 1 1-1h1a1 1 0 0 1 0 2H3a1 1 0 0 1-1-1zm18 0a1 1 0 0 1 1-1h1a1 1 0 0 1 0 2h-1a1 1 0 0 1-1-1zM12 21a1 1 0 0 1 1 1v1a1 1 0 0 1-2 0v-1a1 1 0 0 1 1-1zM4.2 4.2a1 1 0 0 1 1.4 0l.7.7a1 1 0 1 1-1.4 1.4l-.7-.7a1 1 0 0 1 0-1.4zm13.4 13.4a1 1 0 0 1 1.4 0l.7.7a1 1 0 0 1-1.4 1.4l-.7-.7a1 1 0 0 1 0-1.4zM19.8 4.2a1 1 0 0 1 0 1.4l-.7.7a1 1 0 1 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0zM6.3 17.6a1 1 0 0 1 0 1.4l-.7.7a1 1 0 1 1-1.4-1.4l.7-.7a1 1 0 0 1 1.4 0z"/></svg>
+          <svg class="icon-moon" v-else viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
         <button class="lang-btn" @click="lang.toggle()">{{ lang.isEn ? "中文" : "EN" }}</button>
       </template>
     </div>
@@ -68,18 +108,46 @@ function avatarUrl(url) {
 
 <style scoped>
 .navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50; /* 吸顶，保证滚动时侧边标签列表与顶部始终有稳定间隙 */
   display: flex;
   align-items: center;
   padding: 0 24px;
   height: 56px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .side {
   flex: 1;
   display: flex;
   align-items: center;
+}
+
+/* 返回箭头：顶部按钮，无箭柄的纯箭头；
+   水平方向对齐内容容器(.page)左缘 (max-width:960 居中)，窄屏时贴边不重叠 */
+.back-btn {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateX(max(24px, calc((100vw - 960px) / 2))) translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.back-btn:hover {
+  background: var(--hover);
+  color: var(--primary);
 }
 
 .side.right {
@@ -91,7 +159,7 @@ function avatarUrl(url) {
   font-size: 18px;
   font-weight: 700;
   text-decoration: none;
-  color: #2563eb;
+  color: var(--primary);
 }
 
 /* 中间导航：整体居中 */
@@ -103,45 +171,30 @@ function avatarUrl(url) {
 
 .nav-item {
   text-decoration: none;
-  color: #374151;
+  color: var(--text-1);
   font-size: 15px;
 }
 
 .nav-item:hover {
-  color: #2563eb;
+  color: var(--primary);
 }
 
-/* 管理员添加游戏按钮，位于头像左侧 */
-.btn-add {
-  padding: 6px 14px;
-  border-radius: 6px;
-  background: #2563eb;
-  color: #fff;
-  text-decoration: none;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.btn-add:hover {
-  background: #1d4ed8;
-}
-
-/* 站长管理入口，位于添加游戏旁边，站长专属 */
+/* 站长管理入口，位于头像左侧，管理员/站长专属 */
 .btn-manage {
   padding: 6px 14px;
   border-radius: 6px;
-  background: #fff;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: transparent;
+  color: var(--text-1);
+  border: 1px solid var(--border-strong);
   text-decoration: none;
   font-size: 14px;
   white-space: nowrap;
 }
 
 .btn-manage:hover {
-  border-color: #2563eb;
-  color: #2563eb;
-  background: #f8faff;
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 
 /* 头像 + 用户名，悬浮出下拉菜单 */
@@ -161,7 +214,7 @@ function avatarUrl(url) {
 }
 
 .user-trigger:hover {
-  background: #f3f4f6;
+  background: var(--hover);
 }
 
 .avatar {
@@ -169,12 +222,12 @@ function avatarUrl(url) {
   height: 30px;
   border-radius: 50%;
   object-fit: cover;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   line-height: 0;
 }
 
 .user-name {
-  color: #374151;
+  color: var(--text-1);
   font-weight: 600;
   font-size: 14px;
   max-width: 120px;
@@ -201,10 +254,10 @@ function avatarUrl(url) {
 
 .dropdown-inner {
   padding: 6px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow);
 }
 
 .dropdown-item {
@@ -215,7 +268,7 @@ function avatarUrl(url) {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #374151;
+  color: var(--text-1);
   font-size: 14px;
   font-family: inherit;
   text-decoration: none;
@@ -223,21 +276,21 @@ function avatarUrl(url) {
 }
 
 .dropdown-item:hover {
-  background: #f3f4f6;
-  color: #2563eb;
+  background: var(--hover);
+  color: var(--primary);
 }
 
 .dropdown-item.logout {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 .dropdown-item.logout:hover {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .btn-link {
-  color: #2563eb;
+  color: var(--primary);
   text-decoration: none;
 }
 
@@ -247,26 +300,50 @@ function avatarUrl(url) {
   font-size: 14px;
   text-decoration: none;
   border: 1px solid transparent;
-  background: #2563eb;
+  background: var(--primary);
   color: #fff;
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: var(--primary-hover);
 }
 
 .lang-btn {
-  padding: 5px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #374151;
+  width: 54px; /* 固定宽度：切换“中文/EN”时尺寸不变 */
+  height: 32px; /* 与主题按钮等高 */
+  padding: 0;
+  text-align: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .lang-btn:hover {
-  background: #f3f4f6;
+  background: var(--hover);
+}
+
+/* 主题切换按钮：位于用户名右侧 */
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.theme-btn:hover {
+  background: var(--hover);
+  color: var(--primary);
 }
 </style>

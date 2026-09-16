@@ -9,7 +9,15 @@
     "start": "node src/index.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "data:export:games": "node scripts/data-cli.mjs games export",
+    "data:import:games": "node scripts/data-cli.mjs games import",
+    "data:export:reviews": "node scripts/data-cli.mjs reviews export",
+    "data:import:reviews": "node scripts/data-cli.mjs reviews import",
+    "data:backup": "node scripts/data-cli.mjs backup",
+    "data:diff": "node scripts/data-cli.mjs games import --dry-run",
+    "sgdb:backfill": "node scripts/sgdb-backfill.mjs",
+    "sgdb:backfill:all": "node scripts/sgdb-backfill.mjs --all"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -18,7 +26,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.3.0"
+    "multer": "^2.3.0",
+    "steamgriddb": "^2.2.1"
   },
   "devDependencies": {
     "prisma": "^5.22.0"

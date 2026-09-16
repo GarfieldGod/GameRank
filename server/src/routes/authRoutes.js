@@ -35,6 +35,13 @@ router.post("/register", async (req, res) => {
     return res.status(409).json({ error: "该账号已被注册" });
   }
 
+  if (nickname && nickname.trim()) {
+    const nickDupe = await prisma.user.findFirst({ where: { nickname: nickname.trim() } });
+    if (nickDupe) {
+      return res.status(409).json({ error: "用户名已被占用" });
+    }
+  }
+
   const hash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: { username, nickname: nickname || null, password: hash, avatar, bio },
@@ -77,6 +84,7 @@ router.get("/me", jwtAuth, async (req, res) => {
       avatar: true,
       bio: true,
       role: true,
+      theme: true,
       createdAt: true,
     },
   });

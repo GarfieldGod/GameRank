@@ -112,6 +112,66 @@ curl -X POST http://localhost:3000/api/reviews `
 curl http://localhost:3000/api/reviews
 ```
 
+## 数据管理 CLI（站长）
+
+用于批量管理游戏 / 评测数据的命令行工具，仅站长在**服务器端**执行。它复用录入与导入逻辑，但**不经过 Web 层、不需要登录令牌**，并把"导入前自动备份"固化为默认行为，比网页导入更稳妥。
+
+脚本：`server/scripts/data-cli.mjs`，支持的命令：
+
+| 命令 | 作用 |
+| ---- | ---- |
+| `games export` | 导出游戏全部字段到 `data/games.json` |
+| `reviews export` | 导出评测全部字段到 `data/reviews.json` |
+| `games import --file <路径>` | 导入游戏（按中文名：存在则更新、否则新增） |
+| `reviews import --file <路径>` | 导入评测（按 id：存在则更新、否则新增） |
+| `import --dry-run` | 只预览新增/更新/跳过数量，不写库、不备份 |
+| `backup` | 一键备份游戏与评测到 `backups/<时间戳>/` |
+
+> 所有导入**执行前都会自动备份**现有数据到 `backups/` 目录，便于回滚。
+
+### 常用操作（在 `server/` 目录执行）
+
+```powershell
+# 1) 日常备份（游戏 + 评测）
+npm run data:backup
+
+# 2) 导出游戏数据
+npm run data:export:games             # 生成 data/games.json
+
+# 3) 导入前先预览（dry-run，绝不写库）
+npm run data:diff -- --file ./data/games.json
+
+# 4) 确认无误后真正导入（导入前会自动备份）
+npm run data:import:games -- --file ./data/games.json
+
+# 5) 导入评测
+npm run data:import:reviews -- --file ./path/to/reviews.json
+```
+
+### 典型场景：跨环境迁移
+
+```powershell
+# 旧服务器：导出游戏
+npm --prefix server run data:export:games
+# 把 data/games.json 上传到新服务器，然后：
+npm --prefix server run data:diff -- --file ./data/games.json   # 先预览
+npm --prefix server run data:import:games -- --file ./data/games.json
+```
+
+### 回滚
+
+若某次导入结果不如预期，用之前备份的文件反向恢复即可（按 id 更新回正确内容）：
+
+```powershell
+npm run data:import:reviews -- --file ./backups/<时间戳>/reviews.json
+```
+
+### 说明
+
+- 文件路径相对 `server/` 解析；`--file` 参数为必填。
+- 导出/导入遵循游戏按中文名、评测按 id 的"存在更新、否则新增"规则。
+- `data/` 与 `backups/` 目录已加入 `.gitignore`，不会被提交。
+
 ## 说明
 
 - `password` 使用 bcrypt 加密存储，接口不返回该字段。

@@ -1,5 +1,20 @@
 import request from "./request";
 
+// 软删除（不可见）列表：游戏与评测（仅站长）
+export function fetchDeleted() {
+  return request.get("/admin/deleted").then((r) => r.data);
+}
+
+// 恢复可见（仅站长）
+export function restoreItem(kind, id) {
+  return request.post(`/admin/restore/${kind}/${id}`);
+}
+
+// 真正删除（硬删除，仅站长）
+export function purgeItem(kind, id) {
+  return request.post(`/admin/purge/${kind}/${id}`);
+}
+
 // 触发浏览器下载后端生成的 JSON 文件
 async function downloadFile(url, filename) {
   const res = await request.get(url, { responseType: "blob" });
