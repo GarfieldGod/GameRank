@@ -5,6 +5,7 @@ import { fetchGames, fetchGameTags } from "@/api/game";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
+import { consumeFromBack } from "@/utils/backSignal";
 
 const lang = useLangStore();
 const theme = useThemeStore();
@@ -144,11 +145,16 @@ const savedScroll = ref(0);
 onBeforeRouteLeave(() => {
   savedScroll.value = window.scrollY || 0;
 });
+// 通过返回按钮回来时恢复原位；经导航栏/普通跳转进入时置顶。
 onActivated(async () => {
   await nextTick();
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    window.scrollTo(0, savedScroll.value);
-  }));
+  if (consumeFromBack()) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.scrollTo(0, savedScroll.value);
+    }));
+  } else {
+    window.scrollTo(0, 0);
+  }
 });
 
 onBeforeUnmount(() => {

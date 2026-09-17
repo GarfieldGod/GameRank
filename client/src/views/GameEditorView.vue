@@ -817,9 +817,13 @@ onMounted(() => {
 
 <style scoped>
 /* 该页背景图采用 100vw 全宽铺满（含竖直滚动条宽度），会横向撑出一点点；
-   在 body 上裁掉横向溢出，即可消除背景选择后出现的横向滚动条 */
+   在 body 上裁掉横向溢出，即可消除背景选择后出现的横向滚动条。
+   必须用 overflow-x:clip（而非 hidden）：hidden 会让 body 的 overflow-y 被计算成 auto，
+   使 body 变成滚动容器，从而破坏导航栏/标签栏 position:sticky 相对真实视口的吸顶。
+   clip 只裁剪不建立滚动容器，sticky 依旧相对视口吸顶；不支持 clip 时回退 hidden。 */
 :global(body) {
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 .new-game {

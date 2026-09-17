@@ -109,16 +109,21 @@ router.get("/", optionJwtAuth, async (req, res) => {
     where.OR = tagged;
   }
 
-  const [total, games] = await Promise.all([
-    prisma.game.count({ where }),
-    prisma.game.findMany({
-      where,
-      orderBy: [{ score: "desc" }, { createdAt: "desc" }], // 优先按全站均分降序，同分按新游戏优先
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
-  res.json({ list: await attachScores(games.map(parseTags)), total, page, pageSize, hasMore: page * pageSize < total });
+  // 排序依据必须是实时均分。数据库存档的 score 列可能因评测增减/更新而过时，
+  // 而 attachScores 会用最新已发布评测重算并覆盖 score；故先取全量匹配游戏，
+  // 按实时均分在 JS 层稳定排序后再分页切片，确保全局顺序与页面显示的分一致。
+  const allGames = await prisma.game.findMany({ where });
+  const scored = await attachScores(allGames.map(parseTags));
+  scored.sort((a, b) => {
+    const sa = a.score ?? -1;
+    const sb = b.score ?? -1;
+    if (sb !== sa) return sb - sa; // 实时均分降序，无评分排最后
+    return new Date(b.createdAt) - new Date(a.createdAt); // 同分新游戏优先
+  });
+  const total = scored.length;
+  const start = (page - 1) * pageSize;
+  const games = scored.slice(start, start + pageSize);
+  res.json({ list: games, total, page, pageSize, hasMore: start + games.length < total });
 });
 
 // 全部标签及数量：GET /api/games/tags（需在 /:id 之前定义）
@@ -261,6 +266,7 @@ router.get("/:id", optionJwtAuth, async (req, res) => {
   const shapedReviews = list.map((r) => ({
     ...r,
     tags: r.tags ? JSON.parse(r.tags) : [],
+    ratingParams: r.ratingParams ? JSON.parse(r.ratingParams) : [],
   }));
 
   // 当前登录用户是否已有该游戏的“待审核编辑申请”
@@ -274,7 +280,7 @@ router.get("/:id", optionJwtAuth, async (req, res) => {
   }
 
   const shapedMyReview = myReview
-    ? { ...myReview, tags: myReview.tags ? JSON.parse(myReview.tags) : [] }
+    ? { ...myReview, tags: myReview.tags ? JSON.parse(myReview.tags) : [], ratingParams: myReview.ratingParams ? JSON.parse(myReview.ratingParams) : [] }
     : null;
 
   // 为「我的评测」与其余评测附加点赞/不认可数量、当前用户态度、作者内排名

@@ -91,7 +91,8 @@ const zh = {
   "review.dislike": "不认可",
   "review.viewFull": "查看更多",
   "review.collapse": "收起",
-  "review.rank": "TA的排行榜中位于#{n}",
+  "review.viewFullContent": "查看完整内容",
+  "review.rank": "该游戏在TA的排行榜中位于#{n}",
   "review.rankTotal": "排行榜中共 {m} 款游戏",
   "review.rating": "综合评分：{n}",
 
@@ -214,7 +215,7 @@ const zh = {
   "review.editor.updateFailed": "更新失败",
   "review.editor.publishFailed": "发布失败",
   "review.editor.coverUploadFailed": "封面上传失败",
-  "review.editor.brief": "简评",
+  "review.editor.brief": "标题",
   "review.editor.briefPlaceholder": "一句话简评",
   "review.editor.equalWeight": "平均权重",
   "review.editor.enableAspects": "启用分项评分",
@@ -401,7 +402,8 @@ const en = {
   "review.dislike": "Disagree",
   "review.viewFull": "View More",
   "review.collapse": "Collapse",
-  "review.rank": "Ranked #{n} in this player's reviews",
+  "review.viewFullContent": "View Full Content",
+  "review.rank": "Ranked #{n} in this player's leaderboard",
   "review.rankTotal": "{m} games in the leaderboard",
   "review.rating": "Score: {n}",
 

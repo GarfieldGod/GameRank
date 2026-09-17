@@ -314,7 +314,7 @@ watch(() => route.params.id, load);
         <template v-if="myReview">
           <div class="block-title">{{ lang.t("game.detail.myReviews") }}</div>
           <div class="cards single">
-            <ReviewCard :key="'my-' + myReview.id" :review="myReview" />
+            <ReviewCard :key="'my-' + myReview.id" :review="myReview" detail-panel />
           </div>
           <div v-if="reviews.length" class="block-title divider">{{ lang.t("game.detail.otherReviews") }}</div>
         </template>
@@ -322,7 +322,7 @@ watch(() => route.params.id, load);
         <p v-if="!myReview && reviews.length === 0" class="hint">{{ lang.t("game.detail.noReviews") }}</p>
         <p v-else-if="myReview && reviews.length === 0" class="hint">{{ lang.t("game.detail.noReviews") }}</p>
         <div v-if="reviews.length" class="cards other">
-          <ReviewCard v-for="r in reviews" :key="r.id" :review="r" />
+          <ReviewCard v-for="r in reviews" :key="r.id" :review="r" detail-panel />
         </div>
 
         <div v-if="otherTotalPages() > 1" class="pager">

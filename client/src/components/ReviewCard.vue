@@ -11,6 +11,8 @@ const props = defineProps({
   review: { type: Object, required: true },
   // 评测库页：左侧展示游戏封面/名称/评分/排名的纵向面板
   gamePanel: { type: Boolean, default: false },
+  // 游戏详情页评测变体：以评测库面板布局为基础，但不显示游戏封面与名称，分数移到卡片右上角
+  detailPanel: { type: Boolean, default: false },
 });
 
 const lang = useLangStore();
@@ -97,6 +99,21 @@ watch(
   { immediate: true }
 );
 
+// 展开后检测正文是否真的达到三倍高度的截断上限；
+// 未达上限则完整显示（无渐变截断、无额外按钮），只有真正超长被截断时才显示遮罩与「查看完整内容」。
+const overflowed = ref(false);
+watch(
+  [expanded, longContent],
+  async () => {
+    if (!longContent.value || !expanded.value) {
+      overflowed.value = false;
+      return;
+    }
+    await nextTick();
+    overflowed.value = !!bodyEl.value && bodyEl.value.scrollHeight > bodyEl.value.clientHeight;
+  }
+);
+
 async function react(kind) {
   if (!auth.isLoggedIn) {
     router.push({ name: "login", query: { redirect: route.fullPath } });
@@ -114,16 +131,16 @@ async function react(kind) {
 </script>
 
 <template>
-  <article class="card" :class="{ panel: gamePanel }">
+  <article class="card" :class="{ panel: gamePanel || detailPanel, detail: detailPanel }">
     <!-- 非评测库页：顶部横向封面栏 -->
-    <RouterLink v-if="!gamePanel && (gameName || gameCover)" class="game" :to="gameId ? `/game/${gameId}` : ''">
+    <RouterLink v-if="!gamePanel && !detailPanel && (gameName || gameCover)" class="game" :to="gameId ? `/game/${gameId}` : ''">
       <img v-if="gameCover" class="gcover" :src="gameCover" :alt="gameName" referrerpolicy="no-referrer" loading="lazy" />
       <span v-else class="gcover ph">{{ gameName?.charAt(0) || "G" }}</span>
       <span class="gname">{{ gameName }}</span>
     </RouterLink>
 
-    <!-- 评测库页：左侧纵向游戏信息面板 -->
-    <div v-if="gamePanel" class="left">
+    <!-- 详情页顶部容器：排行+作者+评分+简述 水平排列于左/右容器之上 -->
+    <div v-if="detailPanel" class="dbanner">
       <RouterLink v-if="authorProfileUrl" class="lauthor" :to="authorProfileUrl">
         <img v-if="author.avatar" class="lavatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
         <span v-else class="lavatar ph">{{ avatarInitial }}</span>
@@ -132,19 +149,22 @@ async function react(kind) {
           <span v-if="reviewTotal > 0" class="lcount">{{ lang.t("review.rankTotal", { m: reviewTotal }) }}</span>
         </span>
       </RouterLink>
-      <!-- 排名位于用户名下方 -->
-      <span v-if="review.authorRank != null" class="rank" :title="rankText">
-        {{ rankText }}
-      </span>
-      <RouterLink v-if="gameUrl && (gameName || gameCover)" class="lcoverlink" :to="gameUrl">
-        <img v-if="gameCover" class="lcover" :src="gameCover" :alt="gameName" referrerpolicy="no-referrer" loading="lazy" />
-        <span v-else class="lcover ph">{{ gameName?.charAt(0) || "G" }}</span>
-      </RouterLink>
-      <!-- 封面、游戏名、分数整行点击进入游戏详情 -->
-      <div v-if="gameName || gameCover" class="gline" :title="gameName" @click="gameUrl && router.push(gameUrl)">
+      <span v-if="review.authorRank != null" class="rank" :title="rankText">#{{ review.authorRank }}</span>
+      <RouterLink v-if="review.brief" class="brief" :to="reviewUrl">{{ review.brief }}</RouterLink>
+      <span v-if="ratingText" class="dscore" :title="lang.t('review.rating', { n: ratingText })">{{ ratingText }}</span>
+    </div>
+
+    <!-- 评测库页：左侧纵向游戏信息面板 -->
+    <div v-if="gamePanel" class="left">
+      <!-- 游戏名、分数整行：位于封面图上方 -->
+      <div v-if="gamePanel && (gameName || gameCover)" class="gline" :title="gameName" @click="gameUrl && router.push(gameUrl)">
         <span class="lname">{{ gameName }}</span>
         <span class="gscore" :title="lang.t('review.rating', { n: ratingText })">{{ ratingText }}</span>
       </div>
+      <RouterLink v-if="gamePanel && gameUrl && (gameName || gameCover)" class="lcoverlink" :to="gameUrl">
+        <img v-if="gameCover" class="lcover" :src="gameCover" :alt="gameName" referrerpolicy="no-referrer" loading="lazy" />
+        <span v-else class="lcover ph">{{ gameName?.charAt(0) || "G" }}</span>
+      </RouterLink>
       <!-- 左侧分项评分：随正文一同折叠/展开，点击进入评测详情 -->
       <RouterLink v-if="longContent && aspects.length" class="aspects" :class="{ collapsed: !expanded }" :to="reviewUrl">
         <ul>
@@ -154,10 +174,24 @@ async function react(kind) {
           </li>
         </ul>
       </RouterLink>
+      <!-- 底部整体：头像+用户名+排行榜+游戏排位（仅评测库；详情页作者组已置顶） -->
+      <div v-if="!detailPanel" class="lfooter">
+        <RouterLink v-if="authorProfileUrl" class="lauthor" :to="authorProfileUrl">
+          <img v-if="author.avatar" class="lavatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
+          <span v-else class="lavatar ph">{{ avatarInitial }}</span>
+          <span class="luserblock">
+            <span class="lusername" :title="authorName">{{ authorName }}</span>
+            <span v-if="reviewTotal > 0" class="lcount">{{ lang.t("review.rankTotal", { m: reviewTotal }) }}</span>
+          </span>
+        </RouterLink>
+        <span v-if="review.authorRank != null" class="rank" :title="rankText">
+          {{ rankText }}
+        </span>
+      </div>
     </div>
 
     <div class="right">
-      <div class="top">
+      <div v-if="!detailPanel" class="top">
         <span v-if="!gamePanel && review.authorRank != null" class="rank" :title="rankText">
           {{ rankText }}
         </span>
@@ -169,15 +203,34 @@ async function react(kind) {
         <span v-if="!gamePanel && !authorProfileUrl" class="author" :title="authorName">{{ authorName }}</span>
         <RouterLink v-if="review.brief" class="brief" :to="reviewUrl">{{ review.brief }}</RouterLink>
       </div>
+      <!-- 详情页：分项评分并入右侧正文上方（左侧容器已移除） -->
+      <RouterLink v-if="detailPanel && aspects.length" class="aspects" :class="{ collapsed: !expanded }" :to="reviewUrl">
+        <ul>
+          <li v-for="(a, i) in aspects" :key="i">
+            <span class="an" :title="aspectLabel(a.aspect, lang.isEn)">{{ aspectLabel(a.aspect, lang.isEn) }}</span>
+            <span class="as">{{ Math.round(Number(a.score)) }}</span>
+          </li>
+        </ul>
+      </RouterLink>
 
     <div class="main">
-      <div v-if="!gamePanel" class="score" :title="lang.t('review.rating', { n: Number(review.rating).toFixed(1) })">
+      <div v-if="!gamePanel && !detailPanel" class="score" :title="lang.t('review.rating', { n: Number(review.rating).toFixed(1) })">
         {{ Number(review.rating).toFixed(1) }}
       </div>
       <div class="bodywrap">
-        <div ref="bodyEl" class="body" :class="{ collapsed: longContent && !expanded }" v-html="html" @click="goReview"></div>
+        <div
+          ref="bodyEl"
+          class="body"
+          :class="{
+            collapsed: longContent && !expanded,
+            opened: longContent && expanded,
+            trunc: longContent && expanded && overflowed,
+          }"
+          v-html="html"
+          @click="goReview"
+        ></div>
         <button
-          v-if="!gamePanel && longContent"
+          v-if="!gamePanel && !detailPanel && longContent"
           type="button"
           class="expand"
           @click.stop="expanded = !expanded"
@@ -188,15 +241,15 @@ async function react(kind) {
     </div>
 
     <div class="meta">
-      <!-- 评测库页：查看更多与时间、点赞、不认可同行，靠右侧容器左边 -->
-      <button
-        v-if="gamePanel && longContent"
-        type="button"
-        class="expand"
-        @click.stop="expanded = !expanded"
-      >
-        {{ expanded ? lang.t("review.collapse") : lang.t("review.viewFull") }}
-      </button>
+      <!-- 评测库页：查看更多/收起 与 查看完整内容 驻左；时间、点赞、不认可靠右 -->
+      <div v-if="(gamePanel || detailPanel) && longContent" class="cta">
+        <button type="button" class="expand" @click.stop="expanded = !expanded">
+          {{ expanded ? lang.t("review.collapse") : lang.t("review.viewFull") }}
+        </button>
+        <button v-if="expanded && overflowed" type="button" class="expand full" @click.stop="goReview">
+          {{ lang.t("review.viewFullContent") }}
+        </button>
+      </div>
       <span class="time">{{ formatTime(review.publishedAt) }}</span>
       <div class="reactions">
         <button
@@ -578,10 +631,13 @@ async function react(kind) {
   -webkit-mask-image: linear-gradient(#000 0%, #000 calc(100% - 56px), transparent 100%);
   mask-image: linear-gradient(#000 0%, #000 calc(100% - 56px), transparent 100%);
 }
-/* 展开后正文最高为折叠态的三倍（270 × 3），超出截断并做遮罩提示 */
-.body:not(.collapsed) {
-  max-height: 810px;
+/* 展开后正文最高为折叠态的三倍（280 × 3），仅在正文确实超长时应用，避免误伤未超长/已完全展开的正文 */
+.body.opened {
+  max-height: 840px; /* 展开后上限为折叠态三倍；仅在正文确实达到上限时截断（见 .trunc） */
   overflow: hidden;
+}
+/* 展开态真正超长被截断时才显示底部渐变遮罩，避免误伤已完整展示的正文 */
+.body.opened.trunc {
   -webkit-mask-image: linear-gradient(#000 0%, #000 calc(100% - 56px), transparent 100%);
   mask-image: linear-gradient(#000 0%, #000 calc(100% - 56px), transparent 100%);
 }
@@ -606,12 +662,21 @@ async function react(kind) {
   align-items: center;
   gap: 18px;
 }
-.card.panel .meta .expand {
+.card.panel .meta .cta {
   order: -2;
-  margin-right: auto; /* 查看更多贴右容器左端，把时间/点赞推到最右 */
+  display: flex;
+  align-items: center;
+  gap: 12px; /* 「收起」与「查看完整内容」之间的空隙增大一倍（原 6px） */
+  margin-right: auto; /* 查看更多/查看完整分组贴右容器左端，把时间/点赞推到最右 */
 }
 .card.panel .expand {
   margin-top: 0; /* 一整行内无需上方间距 */
+}
+.cta .expand {
+  margin-top: 0;
+}
+.expand.full {
+  flex-shrink: 0;
 }
 .reactions {
   display: flex;
@@ -652,5 +717,107 @@ async function react(kind) {
   color: var(--text-3);
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* —— 游戏详情页评测变体（detail）：以评测库面板布局为基础，去掉封面/游戏名，分数移到卡片右上角 —— */
+.card.detail {
+  position: relative; /* 供右上角分数角标定位 */
+  flex-wrap: wrap; /* 顶部容器独占一行，左/右容器换行并列于其下 */
+}
+.card.panel .lfooter {
+  margin-top: auto; /* 作者信息+游戏排位整体沉到左栏底部 */
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.card.panel .lfooter .rank {
+  align-self: flex-start;
+}
+.card.detail .aspects.collapsed {
+  flex: none; /* 右栏中不撑满，按自身内容高度折叠 */
+  min-height: 0; /* 去掉固定收缩高度，避免与正文之间产生空隙 */
+  max-height: none;
+  overflow: visible;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+/* 详情页分项评分：水平排列，各项以竖线分隔，项目名与分数相邻留一空格 */
+.card.detail .aspects ul {
+  flex-direction: row;
+  flex-wrap: wrap; /* 超过卡片宽度后自动换行 */
+  gap: 0;
+}
+.card.detail .aspects li {
+  justify-content: flex-start;
+  gap: 6px; /* 项目名与分数之间的空格间距 */
+  padding: 0 12px;
+  border-left: 1px solid var(--border);
+}
+.card.detail .aspects li:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+.card.detail .aspects {
+  margin-top: 0; /* 覆盖评测库规则的 2px 上边距，避免分项上方额外撑大 */
+  padding-left: 5px; /* 分项评分整体距右栏左缘 5px */
+}
+.card.detail {
+  row-gap: 0; /* 覆盖 .card.panel 的 gap:18 在换行后产生的行间距，消除紫线与下面的透明空隙 */
+}
+.card.detail .right {
+  gap: 10px; /* 分项评分到正文、以及正文与操作栏之间的间距 */
+  padding-top: 10px; /* 上间距改用 right 自身 padding，与 gap 同值，二者严格相等且空白归属容器 */
+}
+.card.detail .dbanner {
+  flex: 1 1 100%; /* 独占整行，位于左/右容器上方 */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 0; /* 上间距改由 .right 的 padding-top 提供，此处归零避免产生无色的透明间隙 */
+  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.18));
+}
+/* 详情页作者信息卡片缩小为原来的 70% */
+.card.detail .dbanner .lauthor {
+  gap: 6px;
+}
+.card.detail .dbanner .lavatar {
+  width: 40px;
+  height: 40px;
+  font-size: 13px;
+}
+.card.detail .dbanner .lusername {
+  font-size: 16px;
+}
+.card.detail .dbanner .lcount {
+  font-size: 10px;
+}
+.card.detail .dbanner .rank {
+  display: inline-flex;
+  align-items: center;
+  height: 40px; /* 与头像高度对齐 */
+  font-size: 12px;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+.card.detail .brief {
+  flex: 1 1 auto; /* 分数位于简述左侧后，简述吸收剩余宽度 */
+  min-width: 0;
+}
+.card.detail .dscore {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px; /* 与头像高度对齐 */
+  margin-left: auto; /* 分数始终靠右端 */
+  background: var(--score-bg);
+  color: var(--score-text);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.4;
+  border-radius: 6px;
+  padding: 0 10px;
+  margin-right: 10px;
+  flex-shrink: 0;
 }
 </style>

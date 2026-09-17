@@ -4,6 +4,7 @@ import { onBeforeRouteLeave } from "vue-router";
 import { fetchReviews } from "@/api/review";
 import ReviewCard from "@/components/ReviewCard.vue";
 import { useLangStore } from "@/stores/lang";
+import { consumeFromBack } from "@/utils/backSignal";
 
 const lang = useLangStore();
 defineOptions({ name: "ReviewListView" });
@@ -52,11 +53,16 @@ const savedScroll = ref(0);
 onBeforeRouteLeave(() => {
   savedScroll.value = window.scrollY || 0;
 });
+// 通过返回按钮回来时恢复原位；经导航栏/普通跳转进入时置顶。
 onActivated(async () => {
   await nextTick();
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    window.scrollTo(0, savedScroll.value);
-  }));
+  if (consumeFromBack()) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.scrollTo(0, savedScroll.value);
+    }));
+  } else {
+    window.scrollTo(0, 0);
+  }
 });
 </script>
 
