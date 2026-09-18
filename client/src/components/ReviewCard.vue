@@ -50,7 +50,7 @@ const author = computed(() => props.review?.author || {});
 const authorName = computed(() => {
   const n = author.value.nickname?.trim();
   if (n) return n;
-  return author.value.username ? `Gamer${author.value.username}` : "";
+  return author.value.username || "";
 });
 const avatarInitial = computed(() => (authorName.value ? authorName.value.charAt(0).toUpperCase() : "?"));
 
@@ -85,6 +85,13 @@ const reviewUrl = computed(() => (props.review?.id ? `/reviews/${props.review.id
 const gameUrl = computed(() => (gameId.value ? `/game/${gameId.value}` : ""));
 function goReview() {
   if (reviewUrl.value) router.push(reviewUrl.value);
+}
+
+// 整卡点击即进评测详情：仅当点击落在「空白 / 正文」区时生效；
+// 命中带自身跳转或交互的元素（链接、按钮、游戏名行）时不拦截，交由它们各自处理。
+function onCardClick(e) {
+  if (!e.target.closest || e.target.closest("a, button, .gline")) return;
+  goReview();
 }
 
 function formatTime(t) {
@@ -142,7 +149,7 @@ async function react(kind) {
 </script>
 
 <template>
-  <article class="card" :class="{ panel: gamePanel || detailPanel, detail: detailPanel }">
+  <article class="card" :class="{ panel: gamePanel || detailPanel, detail: detailPanel }" @click="onCardClick">
     <!-- 非评测库页：顶部横向封面栏 -->
     <RouterLink v-if="!gamePanel && !detailPanel && (gameName || gameCover)" class="game" :to="gameId ? `/game/${gameId}` : ''">
       <img v-if="gameCover" class="gcover" :src="gameCover" :alt="gameName" referrerpolicy="no-referrer" loading="lazy" />
@@ -247,7 +254,6 @@ async function react(kind) {
             trunc: longContent && expanded && overflowed,
           }"
           v-html="html"
-          @click="goReview"
         ></div>
         <button
           v-if="!gamePanel && !detailPanel && longContent"
@@ -313,6 +319,13 @@ async function react(kind) {
   gap: 12px;
   width: 100%;
   box-sizing: border-box;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  background: var(--surface-2);
 }
 
 /* 游戏库封面栏：横版封面缩略图 + 游戏名，整条可点击跳转游戏详情 */

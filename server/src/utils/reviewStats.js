@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import prisma from "../prismaClient.js";
 
 // 计算每篇评测在【该作者全部已发布评测】中的排名：
@@ -17,21 +16,25 @@ async function computeAuthorRanks(ids) {
   const idsSet = new Set(ids);
   const authorIds = [...new Set(authors.map((a) => a.authorId))];
   if (!authorIds.length) return {};
-  // MySQL 标识符用反引号（SQLite/PostgreSQL 用双引号，这里以 MySQL 为准）
-  const rows = await prisma.$queryRaw`
-    SELECT id,
-      ROW_NUMBER() OVER (
-        PARTITION BY \`authorId\`
-        ORDER BY rating DESC, \`publishedAt\` ASC, id ASC
-      ) AS r,
-      COUNT(*) OVER (PARTITION BY \`authorId\`) AS total
-    FROM \`GameReview\`
-    WHERE status = 'PUBLISHED' AND \`deletedAt\` IS NULL
-      AND \`authorId\` IN (${Prisma.join(authorIds)})
-  `;
+  // 取这些作者的全部已发布评测，按综合分降序、同分按发布时间、再按 id 稳定排序，
+  // 再在 JS 里分组计算排名。用普通查询 + JS 分组，避免 ROW_NUMBER()/OVER 窗口函数
+  // （MySQL 5.7 不支持，8.0 才引入），保证本地(5.7)与服务器(8.0)都能跑。
+  const authorReviews = await prisma.gameReview.findMany({
+    where: { status: "PUBLISHED", deletedAt: null, authorId: { in: authorIds } },
+    select: { id: true, authorId: true },
+    orderBy: [{ rating: "desc" }, { publishedAt: "asc" }, { id: "asc" }],
+  });
+  const byAuthor = new Map();
+  for (const r of authorReviews) {
+    if (!byAuthor.has(r.authorId)) byAuthor.set(r.authorId, []);
+    byAuthor.get(r.authorId).push(r.id);
+  }
   const map = {};
-  for (const row of rows) {
-    if (idsSet.has(row.id)) map[row.id] = { rank: Number(row.r), total: Number(row.total) };
+  for (const [aid, idArr] of byAuthor) {
+    const total = idArr.length;
+    idArr.forEach((rid, i) => {
+      if (idsSet.has(rid)) map[rid] = { rank: i + 1, total };
+    });
   }
   return map;
 }

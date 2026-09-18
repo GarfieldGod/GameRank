@@ -67,7 +67,7 @@ async function onSubmit() {
       <span v-if="errors.confirm" class="err">{{ errors.confirm }}</span>
 
       <label>{{ lang.t("register.nickname") }}
-        <input v-model="form.nickname" type="text" :placeholder="lang.t('register.nicknamePlaceholder', { user: form.username || 'Gamer' })" maxlength="20" @input="validate" />
+        <input v-model="form.nickname" type="text" :placeholder="lang.t('register.nicknamePlaceholder', { user: form.username })" maxlength="20" @input="validate" />
       </label>
       <span v-if="errors.nickname" class="err">{{ errors.nickname }}</span>
 

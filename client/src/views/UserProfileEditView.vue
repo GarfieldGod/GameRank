@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, nextTick, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
@@ -8,6 +8,7 @@ import { fetchUserByUsername, updateProfile } from "@/api/user";
 import { uploadImage } from "@/api/review";
 import { extractError } from "@/api/request";
 import { markReviewsDirty } from "@/utils/dirtySignal";
+import ImageCropper from "@/components/ImageCropper.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -20,7 +21,6 @@ const targetUsername = () => route.params.username;
 const form = ref({ username: "", nickname: "", avatar: "", bio: "" });
 const error = ref("");
 const saving = ref(false);
-const uploading = ref(false);
 const loading = ref(true);
 
 const avatarInput = ref(null);
@@ -35,18 +35,26 @@ function avatarUrl(url) {
   );
 }
 
-async function onPickAvatar(e) {
+// —— 头像裁剪：复用通用 ImageCropper 组件 ——
+const cropOpen = ref(false);
+let pendingFile = null;
+
+// 用户框选文件：交给裁剪面板；确认后再上传裁出的圆形头像
+function onPickAvatar(e) {
   const file = e.target.files?.[0];
+  e.target.value = "";
   if (!file) return;
-  uploading.value = true;
-  error.value = "";
+  pendingFile = file;
+  cropOpen.value = true;
+}
+
+// 裁剪面板确认后拿到裁好的头像图，走常规上传
+async function onCropBlob(blob) {
   try {
+    const file = new File([blob], "avatar.png", { type: blob.type || "image/png" });
     form.value.avatar = await uploadImage(file);
   } catch (err) {
     error.value = extractError(err, lang.t("user.edit.avatarUploadFailed"));
-  } finally {
-    uploading.value = false;
-    e.target.value = "";
   }
 }
 
@@ -59,9 +67,11 @@ async function save() {
   saving.value = true;
   try {
     await updateProfile({ nickname: form.value.nickname, avatar: form.value.avatar, bio: form.value.bio });
-    await auth.refresh(); // 同步导航栏等处的登录用户信息
+    await auth.refresh(); // 同步登录态信息
     markReviewsDirty();
-    router.push(`/user/${targetUsername()}`);
+    // 整页导航到个人主页，强制导航栏、个人主页等所有页面重新加载最新资料，
+    // 避免 SPA 局部跳转时各处仍用旧缓存（旧昵称 / 旧头像）。
+    window.location.assign(`/user/${targetUsername()}`);
   } catch (err) {
     error.value = extractError(err, lang.t("user.edit.saveFailed"));
   } finally {
@@ -93,8 +103,8 @@ onMounted(async () => {
         <div class="info-row">
           <div class="avatar-row">
             <img class="avatar" :src="avatarUrl(form.avatar)" alt="avatar" />
-            <button type="button" class="upload-btn" :disabled="uploading" @click="avatarInput.click()">
-              {{ uploading ? lang.t("game.new.uploading") : lang.t("user.edit.avatar") }}
+            <button type="button" class="upload-btn" @click="avatarInput.click()">
+              {{ lang.t("user.edit.avatar") }}
             </button>
             <input ref="avatarInput" type="file" accept="image/*" hidden @change="onPickAvatar" />
           </div>
@@ -124,6 +134,20 @@ onMounted(async () => {
         </button>
       </div>
     </form>
+
+    <!-- 头像裁剪：选择图片后弹出面板，裁剪成圆形头像（复用通用组件） -->
+    <ImageCropper
+      v-model:open="cropOpen"
+      :src="pendingFile"
+      shape="circle"
+      :aspect-ratio="1"
+      :output-size="256"
+      :title="lang.t('user.edit.cropTitle')"
+      :hint="lang.t('user.edit.cropHint')"
+      :confirm-text="lang.t('user.edit.cropConfirm')"
+      :cancel-text="lang.t('common.cancel')"
+      @confirm="onCropBlob"
+    />
   </div>
 </template>
 

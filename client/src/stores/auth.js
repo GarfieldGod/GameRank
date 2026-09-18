@@ -1,11 +1,11 @@
 import { defineStore } from "pinia";
 import * as authApi from "@/api/auth";
 
-// 显示用户名：有 nickname 用 nickname，否则默认 "Gamer" + 账号
+// 显示用户名：有 nickname 用 nickname，否则默认使用账号名（不再拼接前缀）
 export function displayName(user) {
   const nick = user?.nickname?.trim();
   if (nick) return nick;
-  return user?.username ? `Gamer${user.username}` : "";
+  return user?.username || "";
 }
 
 // localStorage 持久化 key

@@ -43,11 +43,10 @@ function validateRatingParams(params) {
   if (!Array.isArray(params)) return null;
   for (const p of params) {
     const aspect = typeof p.aspect === "string" ? p.aspect.trim() : "";
-    const content = typeof p.content === "string" ? p.content.trim() : "";
     const score = Number(p.score);
     const weight = Number(p.weight);
-    if (!aspect || !content || !Number.isInteger(score) || score < 0 || score > 10) {
-      return "分项评分需包含方向、内容和 0-10 的整数分";
+    if (!aspect || !Number.isInteger(score) || score < 0 || score > 10) {
+      return "分项评分需包含方向和 0-10 的整数分";
     }
     if (!Number.isFinite(weight) || weight < 1) {
       return "分项权重需为不小于 1 的数字";
@@ -403,7 +402,8 @@ router.delete("/:id", jwtAuth, async (req, res) => {
       return res.status(403).json({ error: "您没有权限删除该文章，该文章拥有者权限等于或高于您。\n如有其他问题，请联系站长。" });
     }
   }
-  const canHard = existing.authorId === req.userId || isOwnerReq;
+  // 仅作者本人删除自己的评测为硬删除；站长/管理员删除他人评测一律软删（进不可见列表）
+  const canHard = existing.authorId === req.userId;
   if (canHard || existing.deletedAt) {
     // 硬删除：先清掉该评测收到的点赞/不认可，避免外键约束失败导致 500
     await prisma.$transaction([
