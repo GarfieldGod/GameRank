@@ -14,6 +14,7 @@ server/dist/
 .env.local
 .env.*.local
 *.env
+*.pem
 
 # ---- 数据库（本地 SQLite）----
 *.db

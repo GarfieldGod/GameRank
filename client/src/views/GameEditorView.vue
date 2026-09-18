@@ -40,8 +40,6 @@ const applyDirty = computed(() => {
   const fn = (arr) => (arr || []).map(norm).filter(Boolean).sort().join("\u0000");
   return fn(f.tags) !== fn(o.tags);
 });
-const proposalKind = ref("");
-
 const form = ref({
   nameZh: "",
   nameEn: "",
@@ -502,7 +500,6 @@ async function loadProposal() {
   notFound.value = false;
   try {
     const p = await fetchProposal(editProposalId.value);
-    proposalKind.value = p.kind;
     const d = p.data || {};
     form.value = {
       nameZh: d.nameZh || "",
@@ -545,7 +542,6 @@ async function save() {
     if (applyEdit.value && !applyDirty.value) {
       // 申请编辑：什么都没改就不必提交，避免产生一条空的待审核申请
       error.value = lang.t("game.editor.noChanges");
-      saving.value = false;
       return;
     }
     if (isEdit.value) {
@@ -586,6 +582,8 @@ async function save() {
             ? lang.t("game.editor.editProposalFailed")
             : lang.t("game.new.nameFailed")
     );
+  } finally {
+    // 成功/失败/提前返回均复位：跳转若被路由守卫拦截，也不让提交按钮永久禁用
     saving.value = false;
   }
 }

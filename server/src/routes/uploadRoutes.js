@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import multer from "multer";
 import { jwtAuth } from "../middleware/auth.js";
+import { uploadLimiter } from "../middleware/rateLimit.js";
 
 const router = Router();
 
@@ -29,13 +30,16 @@ const upload = multer({
     if (/^image\/(png|jpe?g|gif|webp)$/.test(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("仅支持 png/jpg/gif/webp 图片"));
+      const err = new Error("仅支持 png/jpg/gif/webp 图片");
+      err.status = 400;
+      cb(err);
     }
   },
 });
 
-// 上传图片：POST /api/upload（需登录），返回 { url }
-router.post("/", jwtAuth, upload.single("file"), (req, res) => {
+// 上传图片：POST /api/upload（需登录）
+// 限流置于 multer 解析之前，避免未过限流的请求先落盘再被拒
+router.post("/", uploadLimiter, jwtAuth, upload.single("file"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "缺少文件" });
   }

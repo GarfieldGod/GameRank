@@ -125,9 +125,14 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAuth && !auth.isLoggedIn) {
     return { name: "login", query: { redirect: to.fullPath } };
   }
-  // 已登录：同步最新角色，避免使用陈旧缓存判断权限
+  // 已登录：同步角色。普通导航走 TTL 缓存（60s 内不发请求），
+  // 管理员/站长页强制实时刷新，保证权限判定与服务器一致。
   if (auth.isLoggedIn) {
-    await auth.syncRole();
+    if (to.meta.adminOnly || to.meta.ownerOnly) {
+      await auth.refresh(true);
+    } else {
+      await auth.syncRole();
+    }
   }
   // 仅管理员页面：非管理员跳游戏库
   if (to.meta.adminOnly && !auth.isAdmin) {

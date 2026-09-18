@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
 import { fetchReview, deleteReview, reactToReview } from "@/api/review";
 import { fetchDeletedReview } from "@/api/admin";
@@ -156,8 +156,24 @@ async function onDelete() {
   }
 }
 
-load();
-loadPreview();
+// 路由参数（评测 id / 是否软删除预览）变化时统一重置并重新加载。
+// 详情页会复用同一组件实例（如 /reviews/3 → /reviews/4、普通详情 ↔ 删除预览），
+// 若不监听，路由变化后不会重新拉取，界面残留上一篇文章的脏数据。
+function reloadForRoute() {
+  review.value = null;
+  preview.value = null;
+  likeCount.value = 0;
+  dislikeCount.value = 0;
+  myReaction.value = null;
+  loading.value = true;
+  notFound.value = false;
+  if (route.query.preview === "deleted") {
+    loadPreview();
+  } else {
+    load();
+  }
+}
+watch(() => [route.params.id, route.query.preview], reloadForRoute, { immediate: true });
 </script>
 
 <template>

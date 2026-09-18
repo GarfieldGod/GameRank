@@ -65,9 +65,15 @@ router.get("/deleted/reviews/:id", jwtAuth, adminOnly, async (req, res) => {
     },
   });
   if (!review || !review.deletedAt) return res.status(404).json({ error: "记录不存在或未删除" });
+  let ratingParams = [];
+  try {
+    ratingParams = review.ratingParams ? JSON.parse(review.ratingParams) : [];
+  } catch {
+    ratingParams = [];
+  }
   res.json({
     ...review,
-    ratingParams: review.ratingParams ? JSON.parse(review.ratingParams) : [],
+    ratingParams,
     tags: parseTags(review.tags),
   });
 });
@@ -118,7 +124,11 @@ router.post("/purge/:kind/:id", jwtAuth, ownerOnly, async (req, res) => {
   } else {
     const review = await prisma.gameReview.findUnique({ where: { id } });
     if (!review) return res.status(404).json({ error: "记录不存在" });
-    await prisma.gameReview.delete({ where: { id } });
+    // 先清掉该评测收到的点赞/不认可，避免外键约束失败
+    await prisma.$transaction([
+      prisma.gameReviewReaction.deleteMany({ where: { reviewId: id } }),
+      prisma.gameReview.delete({ where: { id } }),
+    ]);
   }
   res.status(204).end();
 });
@@ -182,20 +192,28 @@ router.post("/games/import", jwtAuth, ownerOnly, async (req, res) => {
 // 导出游戏评测：全部字段，JSON 下载
 router.get("/reviews/export", jwtAuth, ownerOnly, async (_req, res) => {
   const reviews = await prisma.gameReview.findMany({ orderBy: { id: "asc" } });
-  const data = reviews.map((r) => ({
-    id: r.id,
-    gameName: r.gameName,
-    coverImageUrl: r.coverImageUrl,
-    title: r.title,
-    content: r.content,
-    rating: r.rating,
-    ratingParams: r.ratingParams ? JSON.parse(r.ratingParams) : [],
-    status: r.status,
-    tags: parseTags(r.tags),
-    authorId: r.authorId,
-    publishedAt: r.publishedAt,
-    updatedAt: r.updatedAt,
-  }));
+  const data = reviews.map((r) => {
+    let ratingParams = [];
+    try {
+      ratingParams = r.ratingParams ? JSON.parse(r.ratingParams) : [];
+    } catch {
+      ratingParams = [];
+    }
+    return {
+      id: r.id,
+      gameName: r.gameName,
+      coverImageUrl: r.coverImageUrl,
+      title: r.title,
+      content: r.content,
+      rating: r.rating,
+      ratingParams,
+      status: r.status,
+      tags: parseTags(r.tags),
+      authorId: r.authorId,
+      publishedAt: r.publishedAt,
+      updatedAt: r.updatedAt,
+    };
+  });
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="reviews.json"');
   res.send(JSON.stringify(data, null, 2));

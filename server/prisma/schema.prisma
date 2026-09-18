@@ -1,23 +1,23 @@
-// 数据库驱动：SQLite（本地开发零配置）
+// 数据库驱动：MySQL（生产环境）；迁移前用 data-cli.mjs 导出后按序导入
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
 // 用户表
 model User {
   id        Int      @id @default(autoincrement()) // 主键
-  username  String   @unique // 账号，唯一
-  nickname  String? // 用户名（昵称），未设置时默认为 "Gamer" + 账号
-  password  String // 加密后的密码（bcrypt 哈希）
-  avatar    String? // 头像图片 URL
-  bio       String? // 个人简介
-  role      String   @default("USER") // 身份：USER 普通用户 / ADMIN 管理员
-  theme     String? // 主题偏好：light 亮色 / dark 暗色（可空，默认亮色）
+  username  String   @unique @db.VarChar(64) // 账号，唯一
+  nickname  String?  @db.VarChar(64) // 用户名（昵称），未设置时默认为 "Gamer" + 账号
+  password  String   @db.VarChar(255) // 加密后的密码（bcrypt 哈希）
+  avatar    String?  @db.VarChar(500) // 头像图片 URL
+  bio       String?  @db.Text // 个人简介
+  role      String   @default("USER") @db.VarChar(32) // 身份：USER 普通用户 / ADMIN 管理员
+  theme     String?  @db.VarChar(16) // 主题偏好：light 亮色 / dark 暗色（可空，默认亮色）
   tokenVersion Int @default(0) // 令牌版本号：改密码等敏感操作时 +1，使旧令牌(其它设备)失效
   lastActiveAt DateTime? // 最近活跃时间：在线判定用（心跳上报）
   createdAt DateTime @default(now()) // 创建时间
@@ -35,18 +35,18 @@ model User {
 // 游戏评测表
 model GameReview {
   id            Int      @id @default(autoincrement()) // 主键
-  gameName      String // 游戏名称（关联前保存的字符串，用于展示与聚合）
-  coverImageUrl String? // 封面图片 URL（发布时取所关联游戏的封面）
-  title         String // 评测标题
-  brief         String? // 一句话简评（简述）
-  content       String // markdown 正文
+  gameName      String   @db.VarChar(255) // 游戏名称（关联前保存的字符串，用于展示与聚合）
+  coverImageUrl String?  @db.VarChar(500) // 封面图片 URL（发布时取所关联游戏的封面）
+  title         String   @db.VarChar(255) // 评测标题
+  brief         String?  @db.Text // 一句话简评（简述）
+  content       String   @db.LongText // markdown 正文
   rating        Float // 综合得分（保留 1 位小数的 0-10，按分项评分×权重自动计算）
-  ratingParams  String? // 分项评分 JSON：[{ aspect, content, score, weight }]
-  status        String   @default("PUBLISHED") // 状态：PUBLISHED 已发布 / DRAFT 草稿
-  tags          String? // 标签，JSON 数组字符串，如 "[\"RPG\",\"开放世界\"]"
+  ratingParams  String?  @db.LongText // 分项评分 JSON：[{ aspect, content, score, weight }]
+  status        String   @default("PUBLISHED") @db.VarChar(32) // 状态：PUBLISHED 已发布 / DRAFT 草稿
+  tags          String?  @db.Text // 标签，JSON 数组字符串，如 "[\"RPG\",\"开放世界\"]"
   counted       Boolean  @default(true) // 是否计入游戏评分（false 表示该评测不计入平均分与评分数量）
   deletedAt     DateTime? // 软删除时间（管理员删除他人评测时标记，站长或作者可硬删除/恢复）
-  deleteReason  String? // 删除原因（管理员软删除时填写）
+  deleteReason  String?  @db.Text // 删除原因（管理员软删除时填写）
   deletedById   Int? // 执行软删除的管理员 id（不可见列表中展示操作者）
   deletedBy     User?    @relation("ReviewDeletedBy", fields: [deletedById], references: [id]) // 执行软删除的管理员
   authorId      Int // 作者 id，关联 User
@@ -60,6 +60,8 @@ model GameReview {
 
   @@index([authorId])
   @@index([gameId])
+  // 聚合常用条件（评分重算 / 评测列表筛选），避免大表每次全扫
+  @@index([status, deletedAt, counted])
   @@map("GameReview")
 }
 
@@ -68,7 +70,7 @@ model GameReviewReaction {
   id        Int      @id @default(autoincrement()) // 主键
   reviewId  Int // 关联评测
   userId    Int // 操作用户
-  kind      String // like 点赞 / dislike 不认可
+  kind      String   @db.VarChar(16) // like 点赞 / dislike 不认可
   createdAt DateTime @default(now())
 
   review GameReview @relation(fields: [reviewId], references: [id])
@@ -82,20 +84,20 @@ model GameReviewReaction {
 // 游戏实体表（一个页面 = 一个游戏）
 model Game {
   id            Int      @id @default(autoincrement()) // 主键（唯一身份）
-  nameZh        String? // 中文名（可空，不再作为唯一键）
-  nameEn        String // 英文名（必填，由应用层校验；不设唯一，名称去重走应用层软去重）
-  coverImageUrl String? // 封面图片 URL
-  logoImageUrl  String? // 游戏库列表项展示封面（SteamGridDB logo）
-  heroImageUrl  String? // 游戏详情页背景（SteamGridDB hero）
+  nameZh        String?  @db.VarChar(255) // 中文名（可空，不再作为唯一键）
+  nameEn        String   @db.VarChar(255) // 英文名（必填，由应用层校验；不设唯一，名称去重走应用层软去重）
+  coverImageUrl String?  @db.VarChar(500) // 封面图片 URL
+  logoImageUrl  String?  @db.VarChar(500) // 游戏库列表项展示封面（SteamGridDB logo）
+  heroImageUrl  String?  @db.VarChar(500) // 游戏详情页背景（SteamGridDB hero）
   score         Float? // 游戏综合分数（可空）
   steamgriddbId Int? // SteamGridDB 游戏 id（用于精准取封面，避免重复搜索）
-  status        String   @default("APPROVED") // 状态：APPROVED 已通过展示 / PENDING 待站长或管理员审批 / REJECTED 已拒绝（仅保留本人可见）
-  developer     String? // 制作公司
-  publisher     String? // 发行公司
-  description   String   @default("") // 游戏简介
-  tags          String? // 标签，JSON 数组字符串
+  status        String   @default("APPROVED") @db.VarChar(32) // 状态：APPROVED 已通过展示 / PENDING 待站长或管理员审批 / REJECTED 已拒绝（仅保留本人可见）
+  developer     String?  @db.VarChar(255) // 制作公司
+  publisher     String?  @db.VarChar(255) // 发行公司
+  description   String   @default("") @db.VarChar(4000) // 游戏简介
+  tags          String?  @db.Text // 标签，JSON 数组字符串
   deletedAt     DateTime? // 软删除时间（管理员删除时标记隐藏，站长可恢复或硬删除）
-  deleteReason  String? // 删除原因（管理员软删除时填写）
+  deleteReason  String?  @db.Text // 删除原因（管理员软删除时填写）
   deletedById   Int? // 执行软删除的管理员 id（不可见列表中展示操作者）
   deletedBy     User?    @relation("GameDeletedBy", fields: [deletedById], references: [id]) // 执行软删除的管理员
   submitterId   Int? // 申请新增该游戏的用户 id（审批通过后仍保留）
@@ -112,7 +114,7 @@ model Game {
 // 游戏墓碑：游戏被硬删（purge）时保留旧 id 与英文名，供同名游戏重新加入时把评测关联映射回新游戏
 model GameTombstone {
   id     Int    @id // 原游戏 id（硬删后保留，重加同名游戏时据此找回异构评测）
-  nameEn String // 原游戏英文名（新增同名游戏时以此匹配墓碑）
+  nameEn String @db.VarChar(255) // 原游戏英文名（新增同名游戏时以此匹配墓碑）
 
   @@index([nameEn])
   @@map("GameTombstone")
@@ -121,15 +123,15 @@ model GameTombstone {
 // 游戏申请（新增 / 编辑）表：由普通用户提交，站长/管理员审批
 model GameProposal {
   id           Int      @id @default(autoincrement()) // 主键
-  kind         String // ADD 新增游戏 / EDIT 编辑既有游戏
+  kind         String   @db.VarChar(16) // ADD 新增游戏 / EDIT 编辑既有游戏
   gameId       Int? // ADD：对应的待审游戏；EDIT：目标既有游戏（已移除/删除时为 null）
   game         Game?    @relation(fields: [gameId], references: [id])
   proposerId   Int // 申请人 id
   proposer     User     @relation(fields: [proposerId], references: [id]) // 关联 User
-  data         String // 申请的游戏数据快照 JSON（含 proposed 字段，含新增游戏完整信息）
-  reason       String? // 申请人备注/申请编辑理由
-  status       String   @default("PENDING") // PENDING 审核中 / APPROVED 已通过 / REJECTED 被拒绝
-  rejectReason String? // 拒绝原因
+  data         String   @db.LongText // 申请的游戏数据快照 JSON（含 proposed 字段，含新增游戏完整信息）
+  reason       String?  @db.Text // 申请人备注/申请编辑理由
+  status       String   @default("PENDING") @db.VarChar(32) // PENDING 审核中 / APPROVED 已通过 / REJECTED 被拒绝
+  rejectReason String?  @db.Text // 拒绝原因
   reviewedAt   DateTime? // 审批时间
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

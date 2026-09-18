@@ -1,14 +1,15 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import prisma from "../prismaClient.js";
-import { jwtAuth } from "../middleware/auth.js";
+import { jwtAuth, adminOnly } from "../middleware/auth.js";
 
 const router = Router();
 
 // 注册/登录见 authRoutes（/api/auth/register、/api/auth/login）
 
-// 用户列表：GET /api/users
-router.get("/", async (_req, res) => {
+// 用户列表：GET /api/users（仅站长/管理员）
+// 含全部用户的简介/角色/在线状态等资料，仅管理页需要；若公开会成为批量抓取用户隐私的接口。
+router.get("/", jwtAuth, adminOnly, async (_req, res) => {
   const users = await prisma.user.findMany({
     select: {
       id: true,
@@ -40,7 +41,7 @@ router.put("/me", jwtAuth, async (req, res) => {
     return res.status(400).json({ error: "个人简介不能超过 200 字" });
   }
   if (nickname !== undefined && (nickname.trim().length < 3 || nickname.trim().length > 20)) {
-    return res.status(400).json({ error: "用户名需为 3-20 个字符" });
+    return res.status(400).json({ error: "昵称需为 3-20 个字符" });
   }
   if (nickname !== undefined) {
     const nick = nickname.trim();

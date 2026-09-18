@@ -5,10 +5,18 @@ import { attachReviewStats, REACTION_KINDS } from "../utils/reviewStats.js";
 
 const router = Router();
 
-// tags / ratingParams 列存的是 JSON 字符串，统一解析为数组返回
+// tags / ratingParams 列存的是 JSON 字符串，统一解析为数组返回；非法 JSON 回退为空数组
 function parseReview(review) {
-  review.tags = review.tags ? JSON.parse(review.tags) : [];
-  review.ratingParams = review.ratingParams ? JSON.parse(review.ratingParams) : [];
+  try {
+    review.tags = review.tags ? JSON.parse(review.tags) : [];
+  } catch {
+    review.tags = [];
+  }
+  try {
+    review.ratingParams = review.ratingParams ? JSON.parse(review.ratingParams) : [];
+  } catch {
+    review.ratingParams = [];
+  }
   return review;
 }
 
@@ -397,7 +405,11 @@ router.delete("/:id", jwtAuth, async (req, res) => {
   }
   const canHard = existing.authorId === req.userId || isOwnerReq;
   if (canHard || existing.deletedAt) {
-    await prisma.gameReview.delete({ where: { id } });
+    // 硬删除：先清掉该评测收到的点赞/不认可，避免外键约束失败导致 500
+    await prisma.$transaction([
+      prisma.gameReviewReaction.deleteMany({ where: { reviewId: id } }),
+      prisma.gameReview.delete({ where: { id } }),
+    ]);
   } else {
     // 管理员软删除：标记不可见并记录删除原因，同时向作者“事务”插入一条删除通知（含快照），便于作者重新编辑
     const reason = String(req.body?.reason || "").trim() || null;

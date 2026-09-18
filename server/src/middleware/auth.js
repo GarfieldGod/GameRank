@@ -1,7 +1,11 @@
 import jwt from "jsonwebtoken";
 import prisma from "../prismaClient.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-to-a-long-random-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  // 缺失时直接拒绝启动，避免回退到仓库里的弱值被用来伪造令牌
+  throw new Error("服务器环境变量 JWT_SECRET 缺失：请设置随机强密钥后启动");
+}
 
 // 校验请求头 Authorization: Bearer <token>
 // 角色以数据库实时值为准：令牌仅作登录凭证，不信任其中的 role 快照，

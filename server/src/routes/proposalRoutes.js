@@ -24,9 +24,13 @@ function shape(p) {
       status: p.game.status,
       tags: Array.isArray(p.game.tags)
         ? p.game.tags
-        : p.game.tags
-          ? JSON.parse(p.game.tags)
-          : [],
+        : (() => {
+            try {
+              return p.game.tags ? JSON.parse(p.game.tags) : [];
+            } catch {
+              return [];
+            }
+          })(),
     };
   }
   return {

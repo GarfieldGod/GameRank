@@ -6,6 +6,16 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
+// 链接协议白名单：仅放行空/锚点/相对路径/ / http(s)/mailto，
+// 拦截 javascript:、data:、vbscript: 等可执行协议，防止评测内容里的链接注入 XSS。
+const SAFE_PROTO = /^(?:https?|mailto):?$/i;
+md.validateLink = function validateLink(url) {
+  if (!url || url.startsWith("#") || url.startsWith("/")) return true;
+  const m = /^\s*([a-z][a-z0-9+.-]*):/i.exec(url);
+  if (!m) return true; // 无协议（相对引用）放行
+  return SAFE_PROTO.test(m[1]);
+};
+
 // 把 markdown 渲染为 HTML（供 v-html 使用）
 export function renderMarkdown(src) {
   return md.render(src || "");

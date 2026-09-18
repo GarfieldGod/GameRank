@@ -17,16 +17,17 @@ async function computeAuthorRanks(ids) {
   const idsSet = new Set(ids);
   const authorIds = [...new Set(authors.map((a) => a.authorId))];
   if (!authorIds.length) return {};
+  // MySQL 标识符用反引号（SQLite/PostgreSQL 用双引号，这里以 MySQL 为准）
   const rows = await prisma.$queryRaw`
     SELECT id,
       ROW_NUMBER() OVER (
-        PARTITION BY "authorId"
-        ORDER BY rating DESC, "publishedAt" ASC, id ASC
+        PARTITION BY \`authorId\`
+        ORDER BY rating DESC, \`publishedAt\` ASC, id ASC
       ) AS r,
-      COUNT(*) OVER (PARTITION BY "authorId") AS total
-    FROM "GameReview"
-    WHERE status = 'PUBLISHED' AND "deletedAt" IS NULL
-      AND "authorId" IN (${Prisma.join(authorIds)})
+      COUNT(*) OVER (PARTITION BY \`authorId\`) AS total
+    FROM \`GameReview\`
+    WHERE status = 'PUBLISHED' AND \`deletedAt\` IS NULL
+      AND \`authorId\` IN (${Prisma.join(authorIds)})
   `;
   const map = {};
   for (const row of rows) {

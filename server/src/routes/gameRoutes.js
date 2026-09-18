@@ -11,8 +11,13 @@ const reviewGameSelect = {
 
 const router = Router();
 
+// 解析 JSON 数组字符串；非法/空值回退为空数组，避免历史脏数据或导入的非 JSON 字符串触发 500
 function parseTags(game) {
-  game.tags = game.tags ? JSON.parse(game.tags) : [];
+  try {
+    game.tags = game.tags ? JSON.parse(game.tags) : [];
+  } catch {
+    game.tags = [];
+  }
   return game;
 }
 
@@ -197,10 +202,12 @@ router.get("/sgdb/assets", jwtAuth, async (req, res) => {
 
 // 将选中的 SteamGridDB 图片落地到本地：POST /api/games/sgdb/download
 // body: { url }——下载到 uploads/sgdb 并返回本地路径 { url }
+// 仅放行 SteamGridDB CDN 来源，防止登录用户借本接口发起 SSRF 探测内网/云元数据。
+const SGDB_CDN_RE = /^https:\/\/(cdn2|cdn)\.steamgriddb\.com\//i;
 router.post("/sgdb/download", jwtAuth, async (req, res) => {
   const { url } = req.body ?? {};
-  if (!url || !/^https?:\/\//i.test(url)) {
-    return res.status(400).json({ error: "缺少合法的图片 URL" });
+  if (!url || !SGDB_CDN_RE.test(url)) {
+    return res.status(400).json({ error: "仅支持来自 SteamGridDB CDN 的图片地址" });
   }
   try {
     const local = await downloadCover(url);
@@ -534,6 +541,8 @@ router.put("/:id", jwtAuth, adminOnly, async (req, res) => {
 });
 
 // 删除游戏：DELETE /api/games/:id（需登录且管理员；站长=硬删除，管理员=软删除标记不可见）
+// 站长硬删除与其它路径（admin purge）行为保持一致：删除其申请、评测暂存旧关联(staleGameId)、
+// 写墓碑供同名游戏重新加入时恢复关联，并清理外键引用避免约束失败。
 router.delete("/:id", jwtAuth, adminOnly, async (req, res) => {
   const id = Number(req.params.id);
   const game = await prisma.game.findUnique({ where: { id } });
@@ -547,11 +556,16 @@ router.delete("/:id", jwtAuth, adminOnly, async (req, res) => {
   });
 
   if (req.role === "OWNER" || game.deletedAt) {
-    // 硬删除：先解绑引用该游戏的评测，避免外键约束失败，评测文章本身保留
-    if (req.role === "OWNER") {
-      await prisma.gameReview.updateMany({ where: { gameId: id }, data: { gameId: null } });
-    }
-    await prisma.game.delete({ where: { id } });
+    // 硬删除：事务内解绑申请与评测引用（评测写回 transient 旧关联供墓碑重映射），再删除游戏
+    await prisma.$transaction([
+      prisma.gameProposal.deleteMany({ where: { gameId: id } }),
+      prisma.gameReview.updateMany({
+        where: { gameId: id },
+        data: { gameId: null, staleGameId: id },
+      }),
+      prisma.game.delete({ where: { id } }),
+      prisma.gameTombstone.create({ data: { id, nameEn: game.nameEn } }),
+    ]);
   } else {
     // 管理员软删除：标记为不可见并记录删除原因，站长可在管理页恢复或真正删除
     if (!game.deletedAt) {

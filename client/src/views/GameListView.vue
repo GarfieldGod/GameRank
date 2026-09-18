@@ -22,7 +22,9 @@ const loadingMore = ref(false); // 流式加载中
 const page = ref(1);
 const pageSize = 50;
 const total = ref(0);
-const hasMore = computed(() => games.value.length < total.value);
+// 是否还有更多：以后端返回的 hasMore 为准。排序在服务端按实时均分计算，
+// 本地 games.length<total 会因重复/漂移的项判断失误，可能多拉或漏拉。
+const hasMore = ref(false);
 const debounceTimer = ref(null);
 // 记录已加载完成的封面 id：未就绪前封面透明占位，加载完成后渐变淡入，避免比例/裁剪的跳变
 const loadedCovers = reactive(new Set());
@@ -73,6 +75,7 @@ async function load(reset = true) {
   try {
     const data = await fetchGames(currentParams(page.value));
     total.value = data.total;
+    hasMore.value = data.hasMore;
     if (reset) {
       games.value = data.list.map(parseGame);
     } else {

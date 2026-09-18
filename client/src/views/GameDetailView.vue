@@ -4,7 +4,6 @@ import { onBeforeRouteLeave, useRoute, useRouter, RouterLink } from "vue-router"
 import { deleteGame, fetchGame } from "@/api/game";
 import { fetchProposal } from "@/api/proposal";
 import { fetchDeletedGame } from "@/api/admin";
-import { extractError } from "@/api/request";
 import ReviewCard from "@/components/ReviewCard.vue";
 import { useAuthStore, displayName } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
@@ -119,14 +118,22 @@ async function load(opts = {}) {
   }
   try {
     const data = await fetchGame(id, { page: 1, pageSize });
-    page.value = 1;
     loadedId = id;
     game.value = data.game;
-    reviews.value = data.reviews;
     total.value = data.total;
     countedReviews.value = data.countedReviews || 0;
     myReview.value = data.myReview || null;
     myPendingEdit.value = Boolean(data.myPendingEdit);
+    if (silent) {
+      // 静默刷新：保留已滚动的分页与游标，仅合并最新第1页（去重），
+      // 避免把已加载的评测列表截断回第1页，也不让游标重置导致重复触底加载
+      const have = new Set(reviews.value.map((r) => r.id));
+      const fresh = (data.reviews || []).filter((r) => !have.has(r.id));
+      reviews.value = [...fresh, ...reviews.value];
+    } else {
+      page.value = 1;
+      reviews.value = data.reviews;
+    }
   } catch (err) {
     if (err?.response?.status === 404 || err?.status === 404) {
       router.replace({ name: "not-found" });
