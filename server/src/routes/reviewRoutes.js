@@ -71,7 +71,12 @@ async function updateGameScore(gameId, gameName) {
       status: "PUBLISHED",
       deletedAt: null,
       counted: true, // 只有「计入评分」的评测才参与平均分
-      OR: [{ gameName: game.nameZh }, { gameName: game.nameEn }],
+      // 归属优先按稳定键 gameId；历史评测无 gameId 时才用名字兜底，
+      // 避免改名后评测匹配不上导致评分被清空
+      OR: [
+        { gameId: game.id },
+        { gameId: null, OR: [{ gameName: game.nameZh }, { gameName: game.nameEn }] },
+      ],
     },
     _avg: { rating: true },
   });
@@ -80,7 +85,9 @@ async function updateGameScore(gameId, gameName) {
   await prisma.game.update({ where: { id: game.id }, data: { score } });
 }
 
-const gameSelect = { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true } };
+const gameSelect = {
+  select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true },
+};
 
 // 评测列表：GET /api/reviews
 // 支持：page, pageSize 分页；keyword 关键词；tag 标签筛选；authorId 作者筛选；status 状态
@@ -151,6 +158,9 @@ router.post("/", jwtAuth, async (req, res) => {
     return res
       .status(400)
       .json({ error: "gameName 为必填，发布时还需 content（正文）" });
+  }
+  if (brief !== undefined && String(brief).trim() && [...String(brief).trim()].length > 50) {
+    return res.status(400).json({ error: "简述不能超过 50 个字" });
   }
   if (!isDraft && !(await gameExists(String(gameName)))) {
     return res.status(400).json({ error: "该游戏不存在，请从游戏库中选择" });
@@ -301,6 +311,9 @@ router.put("/:id", jwtAuth, async (req, res) => {
   if (existing.authorId !== req.userId) {
     return res.status(403).json({ error: "无权修改他人的评测" });
   }
+  if (brief !== undefined && String(brief).trim() && [...String(brief).trim()].length > 50) {
+    return res.status(400).json({ error: "简述不能超过 50 个字" });
+  }
   const oldGameId = existing.gameId;
   const oldGameName = existing.gameName;
 
@@ -359,22 +372,57 @@ router.put("/:id", jwtAuth, async (req, res) => {
 });
 
 // 删除评测：DELETE /api/reviews/:id（需登录；作者本人或站长/管理员）
-// 作者本人或站长=硬删除；管理员删除他人评测=软删除（标记不可见，站长或作者可再硬删除/恢复）
+// 作者本人或站长=硬删除；管理员删除普通用户评测=软删除（标记不可见，站长或作者可再硬删除/恢复）
+// 普通管理员【不可】删除站长或其他管理员的评测
 router.delete("/:id", jwtAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const existing = await prisma.gameReview.findUnique({ where: { id } });
+  const existing = await prisma.gameReview.findUnique({
+    where: { id },
+    include: { author: { select: { role: true } } },
+  });
   if (!existing) {
     return res.status(404).json({ error: "review not found" });
   }
   const isAdmin = req.role === "ADMIN" || req.role === "OWNER";
+  const isOwnerReq = req.role === "OWNER";
   if (existing.authorId !== req.userId && !isAdmin) {
     return res.status(403).json({ error: "无权删除该评测" });
   }
-  const canHard = existing.authorId === req.userId || req.role === "OWNER";
+  // 普通管理员（非站长）删除他人评测：站长/其他管理员的评测一律无权删除
+  if (!isOwnerReq && existing.authorId !== req.userId) {
+    const targetRole = existing.author.role;
+    if (targetRole === "OWNER" || targetRole === "ADMIN") {
+      return res.status(403).json({ error: "您没有权限删除该文章，该文章拥有者权限等于或高于您。\n如有其他问题，请联系站长。" });
+    }
+  }
+  const canHard = existing.authorId === req.userId || isOwnerReq;
   if (canHard || existing.deletedAt) {
     await prisma.gameReview.delete({ where: { id } });
   } else {
-    await prisma.gameReview.update({ where: { id }, data: { deletedAt: new Date() } });
+    // 管理员软删除：标记不可见并记录删除原因，同时向作者“事务”插入一条删除通知（含快照），便于作者重新编辑
+    const reason = String(req.body?.reason || "").trim() || null;
+    await prisma.$transaction(async (tx) => {
+      await tx.gameReview.update({ where: { id }, data: { deletedAt: new Date(), deleteReason: reason, deletedById: req.userId } });
+      await tx.gameProposal.create({
+        data: {
+          kind: "DEL",
+          proposerId: existing.authorId,
+          gameId: existing.gameId,
+          data: JSON.stringify({
+            gameName: existing.gameName,
+            coverImageUrl: existing.coverImageUrl,
+            title: existing.title,
+            brief: existing.brief,
+            content: existing.content,
+            rating: existing.rating,
+            ratingParams: existing.ratingParams,
+            tags: existing.tags ? JSON.parse(existing.tags) : [],
+          }),
+          reason,
+          status: "DELETED",
+        },
+      });
+    });
   }
   await updateGameScore(existing.gameId, existing.gameName);
   res.status(204).end();

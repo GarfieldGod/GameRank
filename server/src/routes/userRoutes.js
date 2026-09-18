@@ -1,4 +1,5 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
 import prisma from "../prismaClient.js";
 import { jwtAuth } from "../middleware/auth.js";
 
@@ -9,7 +10,16 @@ const router = Router();
 // 用户列表：GET /api/users
 router.get("/", async (_req, res) => {
   const users = await prisma.user.findMany({
-    select: { id: true, username: true, nickname: true, avatar: true, bio: true, role: true, createdAt: true },
+    select: {
+      id: true,
+      username: true,
+      nickname: true,
+      avatar: true,
+      bio: true,
+      role: true,
+      lastActiveAt: true,
+      createdAt: true,
+    },
   });
   res.json(users);
 });
@@ -56,7 +66,7 @@ router.put("/me", jwtAuth, async (req, res) => {
   res.json(user);
 });
 
-// 用户详情：GET /api/users/:id（头像、简介、创建时间；评测列表用 /api/reviews?authorId= 分页获取）
+// 用户详情：GET /api/users/:id（头像、简介、角色、创建时间；评测列表用 /api/reviews?authorId= 分页获取）
 router.get("/:id", async (req, res) => {
   const id = Number(req.params.id);
   const user = await prisma.user.findUnique({
@@ -67,6 +77,8 @@ router.get("/:id", async (req, res) => {
       nickname: true,
       avatar: true,
       bio: true,
+      role: true,
+      lastActiveAt: true,
       createdAt: true,
     },
   });
@@ -74,6 +86,61 @@ router.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "user not found" });
   }
   res.json(user);
+});
+
+// 修改本人密码：PUT /api/users/me/password（需登录，仅本人）
+// body: { currentPassword, newPassword }  需校验原密码
+router.put("/me/password", jwtAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body ?? {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "原密码和新密码不能为空" });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: "新密码长度至少 6 位" });
+  }
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) {
+    return res.status(404).json({ error: "用户不存在" });
+  }
+  if (!(await bcrypt.compare(currentPassword, user.password))) {
+    return res.status(401).json({ error: "原密码错误" });
+  }
+  const hash = await bcrypt.hash(newPassword, 10);
+  // 改密码使令牌版本 +1：同一账号在其它设备的旧令牌随之失效，强制下线
+  await prisma.user.update({
+    where: { id: req.userId },
+    data: { password: hash, tokenVersion: { increment: 1 } },
+  });
+  res.status(204).end();
+});
+
+// 注销账号：POST /api/users/me/deactivate（需登录，仅本人）
+// 身份置 REVOKED（管理员被直接覆盖为注销，相当于先降权）；tokenVersion +1 使该账号在其它设备立刻失效（强制下线）
+// 保留全部数据；站长（OWNER）账号不可注销，保证系统仍有人管理
+router.post("/me/deactivate", jwtAuth, async (req, res) => {
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) {
+    return res.status(404).json({ error: "用户不存在" });
+  }
+  if (user.role === "OWNER") {
+    return res.status(403).json({ error: "站长账号无法注销" });
+  }
+  const updated = await prisma.user.update({
+    where: { id: req.userId },
+    data: { role: "REVOKED", tokenVersion: { increment: 1 } },
+    select: {
+      id: true,
+      username: true,
+      nickname: true,
+      avatar: true,
+      bio: true,
+      role: true,
+      theme: true,
+      lastActiveAt: true,
+      createdAt: true,
+    },
+  });
+  res.json(updated);
 });
 
 export default router;

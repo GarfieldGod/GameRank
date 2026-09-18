@@ -18,10 +18,14 @@ model User {
   bio       String? // 个人简介
   role      String   @default("USER") // 身份：USER 普通用户 / ADMIN 管理员
   theme     String? // 主题偏好：light 亮色 / dark 暗色（可空，默认亮色）
+  tokenVersion Int @default(0) // 令牌版本号：改密码等敏感操作时 +1，使旧令牌(其它设备)失效
+  lastActiveAt DateTime? // 最近活跃时间：在线判定用（心跳上报）
   createdAt DateTime @default(now()) // 创建时间
 
   reviews          GameReview[]
   reviewReactions  GameReviewReaction[] // 该用户在评测上的点赞/不认可记录
+  deletedReviews   GameReview[]         @relation("ReviewDeletedBy") // 该管理员软删除的评测
+  deletedByGames   Game[]               @relation("GameDeletedBy") // 该管理员软删除的游戏
   proposals        GameProposal[] // 该用户提交的游戏申请（新增/编辑）
   gameSubmissions Game[]     @relation("GameSubmitter") // 该用户申请新增的游戏（待审中）
 
@@ -42,6 +46,9 @@ model GameReview {
   tags          String? // 标签，JSON 数组字符串，如 "[\"RPG\",\"开放世界\"]"
   counted       Boolean  @default(true) // 是否计入游戏评分（false 表示该评测不计入平均分与评分数量）
   deletedAt     DateTime? // 软删除时间（管理员删除他人评测时标记，站长或作者可硬删除/恢复）
+  deleteReason  String? // 删除原因（管理员软删除时填写）
+  deletedById   Int? // 执行软删除的管理员 id（不可见列表中展示操作者）
+  deletedBy     User?    @relation("ReviewDeletedBy", fields: [deletedById], references: [id]) // 执行软删除的管理员
   authorId      Int // 作者 id，关联 User
   author        User     @relation(fields: [authorId], references: [id]) // 关联 User
   gameId        Int? // 关联的游戏 id（可空，草稿或历史数据可能为空）
@@ -87,6 +94,9 @@ model Game {
   description   String   @default("") // 游戏简介
   tags          String? // 标签，JSON 数组字符串
   deletedAt     DateTime? // 软删除时间（管理员删除时标记隐藏，站长可恢复或硬删除）
+  deleteReason  String? // 删除原因（管理员软删除时填写）
+  deletedById   Int? // 执行软删除的管理员 id（不可见列表中展示操作者）
+  deletedBy     User?    @relation("GameDeletedBy", fields: [deletedById], references: [id]) // 执行软删除的管理员
   submitterId   Int? // 申请新增该游戏的用户 id（审批通过后仍保留）
   submitter     User?    @relation("GameSubmitter", fields: [submitterId], references: [id]) // 申请新增人
   createdAt     DateTime @default(now())

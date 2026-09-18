@@ -20,6 +20,11 @@ export function updateProposal(id, payload) {
   return request.put(`/proposals/${id}`, payload).then((r) => r.data);
 }
 
+// 删除/取消申请（本人或管理员）：PENDING 取消申请，已处理删除记录
+export function deleteProposal(id) {
+  return request.delete(`/proposals/${id}`);
+}
+
 // 审批通过
 export function approveProposal(id) {
   return request.post(`/proposals/${id}/approve`).then((r) => r.data);

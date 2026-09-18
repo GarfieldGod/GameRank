@@ -25,9 +25,9 @@ export function updateGame(id, payload) {
   return request.put(`/games/${id}`, payload).then((r) => r.data);
 }
 
-// 删除游戏（仅管理员）
-export function deleteGame(id) {
-  return request.delete(`/games/${id}`).then((r) => r.data);
+// 删除游戏（仅管理员）；reason 为删除原因（软删除时记录）
+export function deleteGame(id, reason) {
+  return request.delete(`/games/${id}`, { data: { reason } }).then((r) => r.data);
 }
 
 // 全部标签及数量：[{ tag, count }]

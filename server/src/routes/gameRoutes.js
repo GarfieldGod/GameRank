@@ -5,7 +5,9 @@ import { sgdbSearch, fetchAssets, downloadCover, downloadThumb } from "../servic
 import { attachReviewStats } from "../utils/reviewStats.js";
 
 // 评测列表附加其关联游戏（封面/名称），供前端评测卡片展示并可跳转详情
-const reviewGameSelect = { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true } };
+const reviewGameSelect = {
+  select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true },
+};
 
 const router = Router();
 
@@ -18,31 +20,34 @@ function parseTags(game) {
 // 覆盖返回对象中的 score，避免依赖可能过期或为空的存档列。
 async function attachScores(games) {
   if (!games.length) return games;
-  const nameSet = new Set();
+  // 名字兜底映射：老数据评测（gameId 为 null）按其 gameName 归到名称匹配的游戏
+  const nameOf = new Map();
   for (const g of games) {
-    if (g.nameEn) nameSet.add(g.nameEn);
-    if (g.nameZh) nameSet.add(g.nameZh);
+    if (g.nameEn) nameOf.set(g.nameEn, g.id);
+    if (g.nameZh) nameOf.set(g.nameZh, g.id);
   }
+  const ids = games.map((g) => g.id);
   const rows = await prisma.gameReview.findMany({
     where: {
       status: "PUBLISHED",
       deletedAt: null,
       counted: true,
-      ...(nameSet.size ? { gameName: { in: [...nameSet] } } : { gameName: "\u0000" }),
+      // 归属优先按稳定键 gameId；仅历史无 gameId 的评测才按名字兜底
+      OR: [
+        { gameId: { in: ids } },
+        { gameId: null, gameName: { in: [...nameOf.keys()] } },
+      ],
     },
-    select: { gameName: true, rating: true },
+    select: { gameId: true, gameName: true, rating: true },
   });
-  const byName = new Map();
+  const perId = new Map(ids.map((id) => [id, []]));
   for (const r of rows) {
-    if (!byName.has(r.gameName)) byName.set(r.gameName, []);
-    byName.get(r.gameName).push(r.rating);
+    const target = r.gameId != null ? r.gameId : nameOf.get(r.gameName);
+    if (target != null && perId.has(target)) perId.get(target).push(r.rating);
   }
   return games.map((g) => {
-    const ratings = [];
-    for (const key of [g.nameEn, g.nameZh]) {
-      if (key && byName.has(key)) ratings.push(...byName.get(key));
-    }
-    if (!ratings.length) return { ...g, score: null };
+    const ratings = perId.get(g.id);
+    if (!ratings || !ratings.length) return { ...g, score: null };
     const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
     return { ...g, score: Math.round(avg * 10) / 10 };
   });
@@ -212,6 +217,10 @@ router.get("/sgdb/proxy", async (req, res) => {
 // 评测通过游戏中文名/英文名与评测表 gameName 匹配聚合
 router.get("/:id", optionJwtAuth, async (req, res) => {
   const id = Number(req.params.id);
+  // 非法 id（NaN/负数/0）直接拒绝，避免带着无效参数进 findUnique 抛错
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "invalid id" });
+  }
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 5));
 
@@ -228,7 +237,10 @@ router.get("/:id", optionJwtAuth, async (req, res) => {
   // 一个游戏的评测可能以中文名或英文名作为 gameName 发布，名称任一项命中即关联
   const nameKeys = [game.nameEn, game.nameZh].filter(Boolean);
   const nameOr = nameKeys.map((n) => ({ gameName: n }));
-  const whereGame = { OR: nameOr };
+  // 归属优先按稳定键 gameId；历史无 gameId 的评测才按名字兜底，改名后评测归属不丢
+  const idAssoc = { gameId: game.id };
+  const legacyNameAssoc = { gameId: null, OR: nameOr };
+  const whereGame = { OR: [idAssoc, legacyNameAssoc] };
 
   // 当前登录用户是否已对该游戏写过评测：若有则返回并在评测列表中排除，避免重复展示
   let myReview = null;
@@ -239,7 +251,7 @@ router.get("/:id", optionJwtAuth, async (req, res) => {
         authorId: req.userId,
         status: "PUBLISHED",
         deletedAt: null,
-        OR: nameOr,
+        OR: [idAssoc, legacyNameAssoc],
       },
       include: { author: { select: { id: true, username: true, nickname: true, avatar: true } }, game: reviewGameSelect },
     });
@@ -527,9 +539,12 @@ router.delete("/:id", jwtAuth, adminOnly, async (req, res) => {
     }
     await prisma.game.delete({ where: { id } });
   } else {
-    // 管理员软删除：标记为不可见，站长可在管理页恢复或真正删除
+    // 管理员软删除：标记为不可见并记录删除原因，站长可在管理页恢复或真正删除
     if (!game.deletedAt) {
-      await prisma.game.update({ where: { id }, data: { deletedAt: new Date() } });
+      await prisma.game.update({
+        where: { id },
+        data: { deletedAt: new Date(), deleteReason: String(req.body?.reason || "").trim() || null, deletedById: req.userId },
+      });
     }
   }
   res.status(204).end();

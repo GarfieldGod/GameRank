@@ -1,9 +1,12 @@
 import jwt from "jsonwebtoken";
+import prisma from "../prismaClient.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-to-a-long-random-secret";
 
 // 校验请求头 Authorization: Bearer <token>
-export function jwtAuth(req, res, next) {
+// 角色以数据库实时值为准：令牌仅作登录凭证，不信任其中的 role 快照，
+// 这样提拔/降职后无需重新登录即可立即生效。
+export async function jwtAuth(req, res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
 
@@ -11,16 +14,29 @@ export function jwtAuth(req, res, next) {
     return res.status(401).json({ error: "未登录，缺少令牌" });
   }
 
+  let payload;
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    // 挂载到请求，后续业务路由使用 req.userId / req.username / req.role
-    req.userId = payload.userId;
-    req.username = payload.username;
-    req.role = payload.role || "USER";
-    next();
+    payload = jwt.verify(token, JWT_SECRET);
   } catch {
     return res.status(401).json({ error: "令牌无效或已过期" });
   }
+
+  const user = await prisma.user.findUnique({
+    where: { id: payload.userId },
+    select: { id: true, role: true, tokenVersion: true },
+  });
+  if (!user) {
+    return res.status(401).json({ error: "用户不存在，登录已失效" });
+  }
+  // 令牌版本与数据库不一致：该密码已修改等敏感变更发生在别处，本登录已作废，强制下线
+  if (user.tokenVersion !== payload.tokenVersion) {
+    return res.status(401).json({ error: "登录已失效，请重新登录", code: "TOKEN_STALE" });
+  }
+
+  req.userId = user.id;
+  req.username = payload.username;
+  req.role = user.role;
+  next();
 }
 
 // 管理员专属中间件：必须已登录且身份为 ADMIN 或 OWNER
@@ -40,14 +56,21 @@ export function ownerOnly(req, res, next) {
 }
 
 // 可选登录：携带有效令牌则解析登录态，否则放行（req.userId / req.role 可能为空）
-export function optionJwtAuth(req, _res, next) {
+export async function optionJwtAuth(req, _res, next) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
   if (token) {
     try {
       const payload = jwt.verify(token, JWT_SECRET);
-      req.userId = payload.userId;
-      req.role = payload.role || "USER";
+      const user = await prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { id: true, role: true, tokenVersion: true },
+      });
+      // 令牌失效（版本不符：已在别处改密码等）同样视为未登录
+      if (user && user.tokenVersion === payload.tokenVersion) {
+        req.userId = user.id;
+        req.role = user.role;
+      }
     } catch {
       // 令牌无效视为未登录
       req.userId = undefined;

@@ -20,9 +20,9 @@ export function updateReview(id, payload) {
   return request.put(`/reviews/${id}`, payload).then((r) => r.data);
 }
 
-// 删除评测
-export function deleteReview(id) {
-  return request.delete(`/reviews/${id}`);
+// 删除评测；reason 为删除原因（管理员软删除他人评测时记录）
+export function deleteReview(id, reason) {
+  return request.delete(`/reviews/${id}`, { data: { reason } });
 }
 
 // 上传图片 → { url }

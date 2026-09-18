@@ -52,7 +52,7 @@ router.get("/", jwtAuth, adminOnly, async (req, res) => {
     where,
     include: {
       proposer: { select: { id: true, username: true, nickname: true, avatar: true } },
-      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, status: true, tags: true } },
+      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true, status: true, tags: true } },
     },
     // 待办按提交先后处理（先提交的先审）
     orderBy: { createdAt: "asc" },
@@ -184,6 +184,27 @@ router.put("/:id", jwtAuth, async (req, res) => {
     });
   });
   res.json(shape(updated));
+});
+
+// 删除/取消申请：DELETE /api/proposals/:id（仅申请人本人或站长/管理员）
+// - PENDING（审核中）删除 = 取消申请：ADD 类同时删除其待审游戏行（尚无公开数据）；
+// - 已处理（APPROVED/REJECTED）删除 = 删除该条记录本身。
+router.delete("/:id", jwtAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const proposal = await prisma.gameProposal.findUnique({ where: { id } });
+  if (!proposal) return res.status(404).json({ error: "proposal not found" });
+  const isAdmin = req.role === "ADMIN" || req.role === "OWNER";
+  if (proposal.proposerId !== req.userId && !isAdmin) {
+    return res.status(403).json({ error: "无权删除该申请" });
+  }
+  await prisma.$transaction(async (tx) => {
+    if (proposal.status === "PENDING" && proposal.kind === "ADD" && proposal.gameId) {
+      // 取消新增申请：待审游戏尚无公开数据，一并删除，避免残留审核中的游戏占位
+      await tx.game.deleteMany({ where: { id: proposal.gameId, status: "PENDING" } });
+    }
+    await tx.gameProposal.delete({ where: { id } });
+  });
+  res.status(204).end();
 });
 
 // 审批通过：POST /api/proposals/:id/approve（站长或管理员）

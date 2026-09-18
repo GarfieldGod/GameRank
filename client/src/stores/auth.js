@@ -67,15 +67,24 @@ export const useAuthStore = defineStore("auth", {
       persist(null, null);
     },
 
-    // 刷新登录态（可选：从 /me 拉取用户信息）
+    // 刷新登录态：从 /me 拉取最新用户信息（含实时角色）。
+    // 仅当令牌确实无效/过期（401）才登出；网络抖动等临时错误不强退，避免误登出。
     async refresh() {
       if (!this.token) return;
       try {
         this.user = await authApi.fetchMe();
         persist(this.token, this.user);
-      } catch {
-        this.logout();
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          this.logout();
+        }
       }
+    },
+
+    // 同步最新角色：提拔/降职后无需重新登录，导航时调用以刷新 isAdmin/isOwner
+    async syncRole() {
+      if (!this.token) return;
+      await this.refresh();
     },
   },
 });

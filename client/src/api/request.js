@@ -1,5 +1,6 @@
 import axios from "axios";
 import { useAuthStore } from "@/stores/auth";
+import { useLangStore } from "@/stores/lang";
 
 // axios 实例，统一 /api 前缀
 const request = axios.create({
@@ -16,12 +17,17 @@ request.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截：401 时清除登录态（令牌失效）
+// 响应拦截：401 时清除登录态（令牌失效）。若因“已在其它设备修改密码”被强制下线，
+// 先提示登出原因，再登出。
 request.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       const auth = useAuthStore();
+      const data = err.response.data;
+      if (data?.code === "TOKEN_STALE") {
+        window.alert(useLangStore().t("auth.sessionRevoked"));
+      }
       auth.logout();
     }
     return Promise.reject(err);

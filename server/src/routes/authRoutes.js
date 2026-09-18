@@ -62,15 +62,28 @@ router.post("/login", async (req, res) => {
   if (!user || !(await bcrypt.compare(password, user.password))) {
     return res.status(401).json({ error: "账号或密码错误" });
   }
+  // 已注销账号禁止登录
+  if (user.role === "REVOKED") {
+    return res.status(403).json({ error: "该账号已注销" });
+  }
 
   const token = jwt.sign(
-    { userId: user.id, username: user.username, role: user.role },
+    { userId: user.id, username: user.username, role: user.role, tokenVersion: user.tokenVersion },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
 
+  // 登录即视为活跃，使在线状态即时生效
+  await prisma.user.update({ where: { id: user.id }, data: { lastActiveAt: new Date() } });
+
   const { password: _pw, ...safe } = user;
   res.json({ token, user: safe });
+});
+
+// 心跳：上报最近活跃时间，用于在线判定（需鉴权，登录期间定时调用）
+router.post("/heartbeat", jwtAuth, async (req, res) => {
+  await prisma.user.update({ where: { id: req.userId }, data: { lastActiveAt: new Date() } });
+  res.status(204).end();
 });
 
 // 获取当前登录用户：GET /api/auth/me（需鉴权）
@@ -85,6 +98,7 @@ router.get("/me", jwtAuth, async (req, res) => {
       bio: true,
       role: true,
       theme: true,
+      lastActiveAt: true,
       createdAt: true,
     },
   });

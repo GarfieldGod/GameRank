@@ -1,13 +1,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { createGame, updateGame, fetchGame, fetchGameTags, sgdbSearchGames, sgdbAssets, sgdbDownload } from "@/api/game";
+import { createGame, updateGame, proposeEditGame, fetchGame, fetchGameTags, sgdbSearchGames, sgdbAssets, sgdbDownload } from "@/api/game";
 import { fetchProposal, updateProposal } from "@/api/proposal";
 import { uploadImage } from "@/api/review";
 import { extractError, isTimeout } from "@/api/request";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
+import { markGamesDirty, markGameDetailDirty } from "@/utils/dirtySignal";
 
 const route = useRoute();
 const router = useRouter();
@@ -20,6 +21,25 @@ const isEdit = computed(() => Boolean(route.params.id));
 // 编辑申请模式：?editProposal=<id>（申请人编辑待审核申请）
 const editProposalId = computed(() => (route.query.editProposal ? Number(route.query.editProposal) : null));
 const isEditProposal = computed(() => Boolean(editProposalId.value));
+// 普通用户编辑既有游戏 = 申请编辑：保存走编辑申请（待审核），而非直接修改
+const applyEdit = computed(() => isEdit.value && !auth.isAdmin);
+// 进入申请编辑时记录的原始快照，用于检测用户是否真的改了内容
+const applyOriginal = ref(null);
+// 是否确有改动：仅申请编辑模式启用；原始快照未就绪（异常/未加载）时不拦截
+const applyDirty = computed(() => {
+  if (!applyEdit.value) return false;
+  const o = applyOriginal.value;
+  if (!o) return true;
+  const f = form.value;
+  const norm = (x) => (x ?? "").trim();
+  const pairs = [
+    ["nameZh", "nameEn", "developer", "publisher", "description",
+     "coverImageUrl", "logoImageUrl", "heroImageUrl"],
+  ][0].map((k) => [f[k], o[k]]);
+  if (pairs.some(([a, b]) => norm(a) !== norm(b))) return true;
+  const fn = (arr) => (arr || []).map(norm).filter(Boolean).sort().join("\u0000");
+  return fn(f.tags) !== fn(o.tags);
+});
 const proposalKind = ref("");
 
 const form = ref({
@@ -32,6 +52,7 @@ const form = ref({
   coverImageUrl: "",
   logoImageUrl: "",
   heroImageUrl: "",
+  reason: "", // 仅申请编辑（普通用户）提交时的申请理由
 });
 const error = ref("");
 const saving = ref(false);
@@ -112,7 +133,11 @@ async function loadGame() {
       coverImageUrl: g.coverImageUrl || "",
       logoImageUrl: g.logoImageUrl || "",
       heroImageUrl: g.heroImageUrl || "",
+      reason: "", // 编辑既有游戏统一从空理由开始（申请编辑时填写）
     };
+    // structuredClone 无法克隆 Vue 的 reactive Proxy（会抛 DataCloneError），
+    // 表单数据均为 JSON 安全值，故用 JSON 深拷贝保留原始快照用于改动检测
+    applyOriginal.value = JSON.parse(JSON.stringify(form.value));
   } catch {
     notFound.value = true;
   } finally {
@@ -515,26 +540,49 @@ async function save() {
 
   saving.value = true;
   try {
+    if (applyEdit.value && !applyDirty.value) {
+      // 申请编辑：什么都没改就不必提交，避免产生一条空的待审核申请
+      error.value = lang.t("game.editor.noChanges");
+      saving.value = false;
+      return;
+    }
     if (isEdit.value) {
-      const updated = await updateGame(route.params.id, payload);
-      router.push(`/game/${updated.id}`);
+      if (applyEdit.value) {
+        // 普通用户编辑既有游戏：提交为「编辑申请」（待审核），数据不直接落地
+        await proposeEditGame(route.params.id, { ...payload, reason: form.value.reason.trim() || undefined });
+        markGameDetailDirty(Number(route.params.id)); // 回到详情页时重载，刷新「编辑申请待审核」状态
+        router.replace(`/game/${route.params.id}`);
+      } else {
+        // 管理员/站长：直接更新生效
+        const updated = await updateGame(route.params.id, payload);
+        markGamesDirty();
+        markGameDetailDirty(updated.id); // 详情页刷新自身；games 标记同步留给游戏库
+        // 用 replace 而非 push：保存后跳回详情页的这条记录不应新增历史，
+        // 否则返回按钮/浏览器返回会多出一层「详情页→详情页」的重复停留
+        router.replace(`/game/${updated.id}`);
+      }
     } else if (isEditProposal.value) {
       // 编辑待审核申请：更新申请快照（ADD 的同时更新待审游戏）
       await updateProposal(editProposalId.value, payload);
+      markGamesDirty();
       router.replace({ path: `/user/${auth.user?.id}`, query: { tab: "submission" } });
     } else {
       // 新建游戏：管理员/站长直接通过，跳转详情页；普通用户进入待审，跳回游戏库并提示
       const created = await createGame(payload);
+      markGamesDirty();
+      if (auth.isAdmin) markGameDetailDirty(created.id); // 管理员直达详情：同步刷新该游戏详情
       router.replace(auth.isAdmin ? `/game/${created.id}` : { path: "/games", query: { added: 1 } });
     }
   } catch (err) {
     error.value = extractError(
       err,
-      isEdit.value
-        ? lang.t("game.editor.updateFailed")
-        : isEditProposal.value
-          ? lang.t("game.editor.editProposalFailed")
-          : lang.t("game.new.nameFailed")
+      applyEdit.value
+        ? lang.t("game.editor.editProposalFailed")
+        : isEdit.value
+          ? lang.t("game.editor.updateFailed")
+          : isEditProposal.value
+            ? lang.t("game.editor.editProposalFailed")
+            : lang.t("game.new.nameFailed")
     );
     saving.value = false;
   }
@@ -565,8 +613,32 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="new-game">
-    <p v-if="loadingGame" class="hint">{{ lang.t("loading") }}</p>
+  <div class="new-game" :class="{ 'content-fade': !loadingGame && !notFound }">
+    <template v-if="loadingGame">
+      <!-- 真实容器空态占位：复用 .hero/.info 容器与封面 6:9 固定比例，
+           容器高度加载前后一致，配合内容淡入避免跳变 -->
+      <div class="hero overlap">
+        <div class="sk" style="width: 160px; aspect-ratio: 6 / 9; flex: 0 0 auto; border-radius: 10px"></div>
+        <div class="info">
+          <div class="sk sk-h12 sk-w45" style="margin-bottom: 6px"></div>
+          <div class="sk sk-h32" style="margin-bottom: 18px"></div>
+          <div class="sk sk-h12 sk-w35" style="margin-bottom: 6px"></div>
+          <div class="sk sk-h56" style="margin-bottom: 18px"></div>
+          <div style="display: flex; gap: 28px">
+            <div style="flex: 1">
+              <div class="sk sk-h10 sk-w40" style="margin-bottom: 6px"></div>
+              <div class="sk sk-h32"></div>
+            </div>
+            <div style="flex: 1">
+              <div class="sk sk-h10 sk-w40" style="margin-bottom: 6px"></div>
+              <div class="sk sk-h32"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sk sk-h24" style="width: 50%; margin: 20px 2px 14px"></div>
+      <div class="sk" style="width: 100%; height: 84px"></div>
+    </template>
     <p v-else-if="notFound" class="hint">{{ lang.t("game.detail.notFound") }}</p>
 
     <form v-else class="form" :style="formStyle" @submit.prevent="save">
@@ -792,9 +864,15 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 申请编辑（普通用户编辑既有游戏）时：填写申请理由，供管理员审批时参考 -->
+      <label v-if="applyEdit" class="apply-reason">
+        <span class="field-label">{{ lang.t("game.detail.proposeEditReason") }}</span>
+        <textarea v-model="form.reason" rows="2" :placeholder="lang.t('game.detail.proposeEditReasonPh')"></textarea>
+      </label>
+
       <div class="actions">
         <button class="primary" type="submit" :disabled="saving">
-          {{ saving ? lang.t("common.saving") : lang.t("common.save") }}
+          {{ saving ? lang.t("common.saving") : (applyEdit ? lang.t("game.detail.submitProposal") : lang.t("common.save")) }}
         </button>
         <RouterLink
           class="cancel"
@@ -829,6 +907,33 @@ onMounted(() => {
 .new-game {
   max-width: 960px;
   margin: 0 auto;
+}
+
+.new-game.content-fade {
+  animation: editor-content-fade 0.28s ease;
+}
+@keyframes editor-content-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 申请编辑（普通用户）的理由输入 */
+.apply-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.apply-reason textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .form {

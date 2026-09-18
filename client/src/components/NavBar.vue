@@ -32,7 +32,7 @@ function avatarUrl(url) {
 <template>
   <nav class="navbar">
     <div class="side left">
-      <RouterLink class="brand" to="/">Game Score</RouterLink>
+      <RouterLink class="brand" to="/">GameRank</RouterLink>
     </div>
 
     <div class="nav-center">

@@ -3,9 +3,20 @@ import prisma from "../prismaClient.js";
 
 // 计算每篇评测在【该作者全部已发布评测】中的排名：
 // 以综合分 rating 降序，同分按发布时间先后，再按 id 稳定排序（排名从 1 开始）
+// 注意：分区必须覆盖该作者的全部已发布评测，而不是仅本批 id——
+// 否则单篇/分页情况下分区内只有当前这一两行，排行榜恒为 #1 / 共1款。
 // 返回 { [reviewId]: { rank, total } }，total 为该作者已发布的评测总数
 async function computeAuthorRanks(ids) {
   if (!ids.length) return {};
+  // 先取出本批评测对应的作者，再按这些作者的【全部】已发布评测计算排名，
+  // 最后只把本批需要的 id 映射出来。
+  const authors = await prisma.gameReview.findMany({
+    where: { id: { in: ids }, status: "PUBLISHED", deletedAt: null },
+    select: { id: true, authorId: true },
+  });
+  const idsSet = new Set(ids);
+  const authorIds = [...new Set(authors.map((a) => a.authorId))];
+  if (!authorIds.length) return {};
   const rows = await prisma.$queryRaw`
     SELECT id,
       ROW_NUMBER() OVER (
@@ -15,10 +26,12 @@ async function computeAuthorRanks(ids) {
       COUNT(*) OVER (PARTITION BY "authorId") AS total
     FROM "GameReview"
     WHERE status = 'PUBLISHED' AND "deletedAt" IS NULL
-      AND id IN (${Prisma.join(ids)})
+      AND "authorId" IN (${Prisma.join(authorIds)})
   `;
   const map = {};
-  for (const row of rows) map[row.id] = { rank: Number(row.r), total: Number(row.total) };
+  for (const row of rows) {
+    if (idsSet.has(row.id)) map[row.id] = { rank: Number(row.r), total: Number(row.total) };
+  }
   return map;
 }
 

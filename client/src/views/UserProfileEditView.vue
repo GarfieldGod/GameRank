@@ -7,6 +7,7 @@ import { useThemeStore } from "@/stores/theme";
 import { fetchUser, updateProfile } from "@/api/user";
 import { uploadImage } from "@/api/review";
 import { extractError } from "@/api/request";
+import { markReviewsDirty } from "@/utils/dirtySignal";
 
 const route = useRoute();
 const router = useRouter();
@@ -59,6 +60,7 @@ async function save() {
   try {
     await updateProfile({ nickname: form.value.nickname, avatar: form.value.avatar, bio: form.value.bio });
     await auth.refresh(); // 同步导航栏等处的登录用户信息
+    markReviewsDirty();
     router.push(`/user/${targetUserId()}`);
   } catch (err) {
     error.value = extractError(err, lang.t("user.edit.saveFailed"));

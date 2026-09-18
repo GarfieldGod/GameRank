@@ -32,5 +32,7 @@ export function gameDisplayName(review, isEn) {
 
 // 评测封面：优先使用所关联游戏的封面，其次评测自身封面
 export function reviewCover(review) {
-  return (review?.game && review.game.coverImageUrl) || review?.coverImageUrl || "";
+  // 与游戏库卡片同款优先级：库封面(logo) → 详情封面(cover) → 背景(hero)，实时返回关联游戏最新图
+  const g = review?.game;
+  return (g && (g.logoImageUrl || g.coverImageUrl || g.heroImageUrl)) || review?.coverImageUrl || "";
 }

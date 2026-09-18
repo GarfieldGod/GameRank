@@ -7,6 +7,7 @@ import { renderMarkdown } from "@/utils/markdown";
 import { ASPECTS, aspectColor, aspectLabel } from "@/utils/aspects";
 import { extractError } from "@/api/request";
 import { useLangStore } from "@/stores/lang";
+import { markReviewsDirty } from "@/utils/dirtySignal";
 
 const route = useRoute();
 const router = useRouter();
@@ -309,6 +310,7 @@ async function submit() {
   try {
     if (isEdit.value) {
       await updateReview(route.params.id, buildPayload("PUBLISHED"));
+      markReviewsDirty();
       suppressLeave = true;
       router.push("/reviews");
     } else {
@@ -337,6 +339,7 @@ function confirmOverwrite() {
 async function publishNew(force) {
   try {
     await createReview({ ...buildPayload("PUBLISHED"), force });
+    markReviewsDirty();
     suppressLeave = true;
     router.push("/reviews");
   } catch (err) {
@@ -398,8 +401,9 @@ onMounted(async () => {
       notFound.value = true;
     }
   } else if (route.query.game) {
-    // 从游戏详情“写评测”进入：预填游戏名
+    // 从游戏详情“写评测”进入：预填游戏名（事务里“重新编辑”还会带上原简述）
     form.gameName = String(route.query.game);
+    if (route.query.brief) form.brief = String(route.query.brief);
   }
   window.addEventListener("beforeunload", onBeforeUnload);
 });
@@ -449,7 +453,7 @@ onBeforeUnmount(() => {
           </div>
           <label class="titled-field">
             <span class="field-title">{{ lang.t("review.editor.brief") }} <span class="opt-mark">({{ lang.t("common.optional") }})</span></span>
-            <input v-model="form.brief" :placeholder="lang.t('review.editor.briefPlaceholder')" />
+            <input v-model="form.brief" maxlength="50" :placeholder="lang.t('review.editor.briefPlaceholder')" />
           </label>
         </div>
         <div class="score-box">

@@ -3,6 +3,7 @@ import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, 
 import { onBeforeRouteLeave, RouterLink, useRoute } from "vue-router";
 import { fetchGames, fetchGameTags } from "@/api/game";
 import { useAuthStore } from "@/stores/auth";
+import { consumeGamesDirty } from "@/utils/dirtySignal";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
 import { consumeFromBack } from "@/utils/backSignal";
@@ -146,7 +147,10 @@ onBeforeRouteLeave(() => {
   savedScroll.value = window.scrollY || 0;
 });
 // 通过返回按钮回来时恢复原位；经导航栏/普通跳转进入时置顶。
+// 若有数据变更标记（编辑/新建/审核等写操作），先刷新列表再恢复滚动，保证封面等数据一致。
 onActivated(async () => {
+  const dirty = consumeGamesDirty();
+  if (dirty) await load(true);
   await nextTick();
   if (consumeFromBack()) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -238,6 +242,7 @@ onBeforeUnmount(() => {
             <div class="body">
               <h3 class="gname">
                 <RouterLink :to="`/game/${g.id}`" :title="lang.gname(g)">{{ lang.gname(g) }}</RouterLink>
+                <span v-if="g.status === 'PENDING'" class="pending-badge">{{ lang.t("games.pending") }}</span>
               </h3>
               <div class="tags">
                 <span v-for="t in g.tags.slice(0, 3)" :key="t" class="tag">{{ lang.tag(t) }}</span>
@@ -519,10 +524,15 @@ h1 {
   font-size: 16px;
   padding-right: 64px; /* 为右侧放大的分数块留出空间，避免长名重叠 */
   min-width: 0; /* 允许内部截断，撑破 grid 单元格 */
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .gname a {
   display: block;
+  flex: 0 1 auto;
+  min-width: 0;
   text-decoration: none;
   color: var(--text-1);
   overflow: hidden;
@@ -532,6 +542,19 @@ h1 {
 
 .gname a:hover {
   color: var(--primary);
+}
+
+/* “审核中”徽章：用户本人待审批的新增游戏显示 */
+.pending-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #fff;
+  background: var(--primary);
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 .score {

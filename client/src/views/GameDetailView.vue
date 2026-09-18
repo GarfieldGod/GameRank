@@ -1,12 +1,16 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue";
-import { useRoute, useRouter, RouterLink } from "vue-router";
-import { deleteGame, fetchGame, proposeEditGame } from "@/api/game";
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeRouteLeave, useRoute, useRouter, RouterLink } from "vue-router";
+import { deleteGame, fetchGame } from "@/api/game";
+import { fetchProposal } from "@/api/proposal";
+import { fetchDeletedGame } from "@/api/admin";
 import { extractError } from "@/api/request";
 import ReviewCard from "@/components/ReviewCard.vue";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore, displayName } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
+import { markGamesDirty, consumeGameDetailDirty, consumeReviewsDirty } from "@/utils/dirtySignal";
+import { consumeFromBack } from "@/utils/backSignal";
 
 const route = useRoute();
 const router = useRouter();
@@ -21,12 +25,14 @@ const countedReviews = ref(0);
 const myReview = ref(null);
 const loading = ref(true);
 const notFound = ref(false);
-const query = reactive({ page: 1 });
 const pageSize = 5;
+const page = ref(1); // 已加载到的页号
+const loadingMore = ref(false); // 无限滚动加载中
 
-// 其余评测（不含我的评测）的分页页数
+// 其余评测（不含我的评测）可滚动的总条数
 const remainingTotal = computed(() => Math.max(0, total.value - (myReview.value ? 1 : 0)));
-const otherTotalPages = () => Math.max(1, Math.ceil(remainingTotal.value / pageSize) || 1);
+// 尚未全部加载时继续触发触底追加
+const hasMore = computed(() => reviews.value.length < remainingTotal.value);
 
 // 写评测/编辑：我的评测已存在则进入编辑，否则新建并预填该游戏
 function openReviewEditor() {
@@ -38,12 +44,12 @@ function openReviewEditor() {
   }
 }
 
-// 主名按页面语言取（中文页用中文名，英文页用英文名）
-const primaryName = computed(() => lang.gname(game.value));
+// 主名按页面语言取（中文页用中文名，英文页用英文名）；预览模式展示“修改后”的名称
+const primaryName = computed(() => lang.gname(displayGame.value));
 // 副名：中文页在下方展示另一种语言的英文名；英文页不显示中文名（避免布局上移动，保留占位）
 const secondaryName = computed(() => {
-  if (!game.value || lang.isEn) return "";
-  return game.value.nameEn || "";
+  if (!displayGame.value || lang.isEn) return "";
+  return displayGame.value.nameEn || "";
 });
 
 // 管理员可编辑/删除游戏
@@ -56,61 +62,27 @@ const deleting = ref(false);
 const deleteFailed = ref("");
 // 我的编辑申请状态
 const myPendingEdit = ref(false);
-// 申请编辑表单
-const propOpen = ref(false);
-const propSubmitted = ref(false);
-const propSaving = ref(false);
-const propError = ref("");
-const editForm = reactive({ nameZh: "", nameEn: "", developer: "", publisher: "", description: "", tagsText: "", reason: "" });
-
-function openProposal() {
+// 申请编辑：与管理员共用同一编辑页（/games/:id/edit），保存时由该页按角色走「待审核申请」
+function goEditApply() {
   if (!game.value) return;
-  editForm.nameZh = game.value.nameZh || "";
-  editForm.nameEn = game.value.nameEn || "";
-  editForm.developer = game.value.developer || "";
-  editForm.publisher = game.value.publisher || "";
-  editForm.description = game.value.description || "";
-  editForm.tagsText = Array.isArray(game.value.tags) ? game.value.tags.join(", ") : "";
-  editForm.reason = "";
-  propError.value = "";
-  propSubmitted.value = false;
-  propOpen.value = true;
-}
-
-async function submitProposal() {
-  propError.value = "";
-  if (!editForm.nameZh.trim()) {
-    propError.value = lang.t("game.new.nameRequired");
-    return;
-  }
-  propSaving.value = true;
-  try {
-    await proposeEditGame(game.value.id, {
-      nameZh: editForm.nameZh.trim(),
-      nameEn: editForm.nameEn.trim(),
-      developer: editForm.developer.trim(),
-      publisher: editForm.publisher.trim(),
-      description: editForm.description.trim(),
-      tags: editForm.tagsText.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
-      reason: editForm.reason.trim() || undefined,
-    });
-    myPendingEdit.value = true;
-    propOpen.value = false;
-    propSubmitted.value = true;
-  } catch (err) {
-    propError.value = extractError(err, lang.t("game.detail.editProposalFailed"));
-  } finally {
-    propSaving.value = false;
-  }
+  router.push(`/games/${game.value.id}/edit`);
 }
 
 async function onDelete() {
   if (deleting.value || !game.value) return;
+  // 纯管理员（非站长）删除游戏 = 软删除，须填写删除原因（站长可在管理页查看到原因）
+  let reason = null;
+  if (auth.isAdmin && !auth.isOwner) {
+    reason = window.prompt(lang.t("game.detail.deleteReasonPrompt"), "");
+    if (reason == null || !String(reason).trim()) return;
+    reason = String(reason).trim();
+  }
   if (!window.confirm(lang.t("game.detail.deleteConfirm", { name: lang.gname(game.value) }))) return;
   deleting.value = true;
   deleteFailed.value = "";
   try {
-    await deleteGame(game.value.id);
+    await deleteGame(game.value.id, reason);
+    markGamesDirty();
     router.push("/games");
   } catch {
     deleteFailed.value = lang.t("game.detail.deleteFailed");
@@ -119,37 +91,158 @@ async function onDelete() {
   }
 }
 
-async function load() {
-  loading.value = true;
-  notFound.value = false;
-  game.value = null;
-  reviews.value = [];
-  propOpen.value = false;
-  propSubmitted.value = false;
-  myPendingEdit.value = false;
-  coverLoaded.value = false;
-  heroLoaded.value = false;
+let loadedId = null; // 当前已加载并展示的游戏 id：用于区分「返回缓存详情」与「切换到另一游戏」
+
+async function load(opts = {}) {
+  const id = Number(route.params.id);
+  // 守卫：KeepAlive 激活缓存的详情组件时，路由参数可能尚未就绪而短暂为 undefined。
+  // 此时直接返回、不发请求，避免发出 /api/games/undefined 这类无效请求；
+  // 待参数就绪后由 watch(() => route.params.id, load) 再次触发。
+  if (!Number.isInteger(id) || id <= 0) return;
+  // 软删除预览：公开接口不返回已删除游戏，展示数据由 loadPreview 拉取；
+  // 先进入加载态，让骨架屏正常展示（与普通详情页一致）
+  if (route.query.preview === "deleted") {
+    loading.value = true;
+    return;
+  }
+  const silent = !!opts.silent;
+  // 静默刷新（返回缓存详情/数据标记变更）时不重置 loading、不清空现有内容，
+  // 避免"加载中"闪烁与 DOM 高度骤变导致滚动位置失效。
+  if (!silent) {
+    loading.value = true;
+    notFound.value = false;
+    game.value = null;
+    reviews.value = [];
+    myPendingEdit.value = false;
+    coverLoaded.value = false;
+    heroLoaded.value = false;
+  }
   try {
-    const data = await fetchGame(route.params.id, {
-      page: query.page,
-      pageSize,
-    });
+    const data = await fetchGame(id, { page: 1, pageSize });
+    page.value = 1;
+    loadedId = id;
     game.value = data.game;
     reviews.value = data.reviews;
     total.value = data.total;
     countedReviews.value = data.countedReviews || 0;
     myReview.value = data.myReview || null;
     myPendingEdit.value = Boolean(data.myPendingEdit);
-  } catch {
-    notFound.value = true;
+  } catch (err) {
+    if (err?.response?.status === 404 || err?.status === 404) {
+      router.replace({ name: "not-found" });
+    } else {
+      notFound.value = true;
+    }
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
-function goPage(p) {
-  query.page = p;
-  load();
+// 无限滚动：滚动到底部时再加载一页（每页 5 个），追加上去
+async function loadMore() {
+  if (loadingMore.value || !hasMore.value || loading.value || loadedId == null) return;
+  loadingMore.value = true;
+  try {
+    const data = await fetchGame(loadedId, { page: page.value + 1, pageSize });
+    page.value += 1;
+    if (data.reviews && data.reviews.length) {
+      reviews.value = reviews.value.concat(data.reviews);
+    }
+  } catch {
+    // 触底加载失败不抛错，允许滚动再次触发时重试
+  } finally {
+    loadingMore.value = false;
+  }
+}
+
+/* —— 待审核编辑申请预览 ——
+   路由带 ?preview=<proposalId> 时进入预览模式：把申请快照（data）覆盖到当前游戏上，
+   展示“修改后的详情”，并用四处“已修改”角标标识被改动的字段/位置。
+   审批通过时不会改动由评测生成的 score，故预览也不改分数，保持原值。 */
+const preview = ref(null); // { id, proposer, data, mode: "proposal" | "deleted" }
+// 软删除游戏预览：非弹窗，直接进入游戏详情页展示删除前快照
+const previewDeleted = computed(() => preview.value?.mode === "deleted");
+function previewProposalId() {
+  const v = route.query.preview;
+  return v && Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null;
+}
+async function loadPreview() {
+  // 软删除预览：从管理接口拉取单条已删除游戏，覆盖为当前展示对象
+  if (route.query.preview === "deleted") {
+    const id = Number(route.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      preview.value = null;
+      notFound.value = true;
+      loading.value = false;
+      return;
+    }
+    try {
+      const g = await fetchDeletedGame(id);
+      preview.value = { mode: "deleted", proposer: g.deletedBy ? displayName(g.deletedBy) : "", data: g };
+      game.value = g;
+      notFound.value = false;
+    } catch {
+      preview.value = null;
+      notFound.value = true;
+    } finally {
+      loading.value = false;
+    }
+    return;
+  }
+  const id = previewProposalId();
+  if (!id) { preview.value = null; return; }
+  try {
+    const p = await fetchProposal(id);
+    preview.value = {
+      mode: "proposal",
+      id: p.id,
+      proposer: p.proposer ? displayName(p.proposer) : "",
+      data: p.data || {},
+    };
+  } catch {
+    preview.value = null;
+  }
+}
+// 仅预览模式可用：将申请数据合并到当前游戏，得到“修改后”的展示对象
+const previewGame = computed(() => {
+  if (!preview.value || !game.value) return null;
+  const d = preview.value.data;
+  const base = game.value;
+  const merged = { ...base };
+  for (const k of ["nameZh", "nameEn", "developer", "publisher", "description", "coverImageUrl", "heroImageUrl", "logoImageUrl"]) {
+    if (d[k] !== undefined) merged[k] = d[k];
+  }
+  if (Array.isArray(d.tags)) merged.tags = d.tags.slice();
+  return merged;
+});
+// 有预览时优先展示“修改后”对象
+const displayGame = computed(() => previewGame.value || game.value);
+const previewing = computed(() => Boolean(preview.value));
+// 与当前游戏对比，标记哪些字段被改变（用于“已修改”角标）
+const previewChanged = computed(() => {
+  if (!preview.value || !game.value) return null;
+  const d = preview.value.data;
+  const g = game.value;
+  const norm = (a, b) => ((a ?? "").trim() !== (b ?? "").trim());
+  return {
+    name: norm(d.nameZh, g.nameZh),
+    nameEn: norm(d.nameEn, g.nameEn),
+    description: norm(d.description, g.description),
+    developer: norm(d.developer, g.developer),
+    publisher: norm(d.publisher, g.publisher),
+    cover: norm(d.coverImageUrl, g.coverImageUrl),
+    hero: norm(d.heroImageUrl, g.heroImageUrl),
+    tags: Array.isArray(d.tags)
+      && (d.tags.slice().sort().join("\u0000") !== (g.tags || []).slice().sort().join("\u0000")),
+  };
+});
+function exitPreview() {
+  // 已删除游戏无公开详情页，返回来源页（通常是从管理页跳转而来）
+  if (previewDeleted.value) {
+    router.back();
+  } else {
+    router.replace(`/game/${game.value?.id}`);
+  }
 }
 
 function cover(url) {
@@ -176,75 +269,198 @@ function onHeroLoad() {
   heroLoaded.value = true;
 }
 
+// —— 详情页被 KeepAlive 缓存期间保存/恢复滚动位置 ——
+// 与列表页一致：离开时（onBeforeRouteLeave）读真实 scrollY 存下，
+// 返回时通过返回按钮则恢复原位，经导航栏/普通跳转进入则置顶。
+// 数据变更标记（发布/编辑/删除评测或更新游戏封面）存在时先刷新再恢复滚动。
+const savedScroll = ref(0);
+onBeforeRouteLeave(() => {
+  savedScroll.value = window.scrollY || 0;
+});
+
 onMounted(() => {
   load();
+  loadPreview();
 });
-// 路由参数变化时重新加载
-watch(() => route.params.id, load);
+
+// 触底无限滚动：观察评测区底部哨兵，进入视口即加载下一批
+const loadMoreRef = ref(null);
+let loadMoreObserver = null;
+function initLoadMoreObserver() {
+  if (loadMoreObserver) return;
+  const el = loadMoreRef.value;
+  if (!el) return;
+  loadMoreObserver = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting) loadMore();
+  });
+  loadMoreObserver.observe(el);
+}
+watch(hasMore, (more) => {
+  if (more) {
+    // 评测追加使页面变长后，哨兵随之下移；重新扫描确保观察到位
+    nextTick(initLoadMoreObserver);
+  }
+});
+onBeforeUnmount(() => {
+  if (loadMoreObserver) {
+    loadMoreObserver.disconnect();
+    loadMoreObserver = null;
+  }
+});
+// 路由参数变化时：真正切换到另一游戏则正常加载；返回该缓存详情（id 未变）则静默刷新，
+// 避免清空内容导致"加载中"闪烁与滚动位置失效。
+watch(() => route.params.id, (val) => {
+  const n = Number(val);
+  if (!Number.isInteger(n) || n <= 0) return;
+  load({ silent: n === loadedId });
+});
+// 预览入口变化（进入/切换/退出编辑申请预览）：重新加载待审快照
+watch(() => route.query.preview, () => {
+  loadPreview();
+});
+// 有概率因异步图片/内容尚未撑起页面高度导致恢复被钳制回顶部（随加载速度浮动），
+// 故在 RAF 循环里等待可滚高度足以到达目标位置（或超时兜底）后再恢复。
+function restoreScroll(target) {
+  const deadline = Date.now() + 2000;
+  const go = () => {
+    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    if (max >= target || Date.now() > deadline) {
+      window.scrollTo(0, Math.min(target, max));
+    } else {
+      requestAnimationFrame(go);
+    }
+  };
+  requestAnimationFrame(() => requestAnimationFrame(go));
+}
+
+onActivated(async () => {
+  // 返回/激活时若该游戏被编辑过（标记 id 匹配当前）或评测有变更，则静默刷新自我
+  // （不清空内容、不闪"加载中"）。games 脏标记留给游戏库，不在详情页消费。
+  const detailDirty = consumeGameDetailDirty();
+  if ((detailDirty != null && detailDirty === game.value?.id) || consumeReviewsDirty()) {
+    await load({ silent: true });
+  }
+  await nextTick();
+  if (consumeFromBack()) {
+    restoreScroll(savedScroll.value);
+  } else {
+    window.scrollTo(0, 0);
+  }
+});
 </script>
 
 <template>
   <div
     class="game-page"
-    :class="{ 'flush-nav': !!game?.heroImageUrl }"
+    :class="{ 'flush-nav': !!game?.heroImageUrl, 'content-fade': !loading && !notFound }"
   >
-    <p v-if="loading">{{ lang.t("loading") }}</p>
+    <template v-if="loading">
+      <!-- 真实容器空态占位：复用 .hero/.info 容器与真实尺寸（封面 6:9 固定比例），
+           容器高度加载前后一致，配合内容淡入避免加载完成时跳变 -->
+      <div class="hero">
+        <div class="sk" style="width: 240px; max-width: 100%; aspect-ratio: 6 / 9; align-self: stretch; flex: 0 0 auto; border-radius: 10px"></div>
+        <div class="info">
+          <div class="sk sk-h26 sk-w70" style="margin: 4px 0 2px"></div>
+          <div class="sk sk-h10 sk-w40" style="margin: 8px 0 20px"></div>
+          <div class="sk sk-text sk-w95"></div>
+          <div class="sk sk-text sk-w88"></div>
+          <div class="sk sk-text sk-w80"></div>
+          <div style="display: flex; gap: 28px; margin: 16px 0">
+            <div class="sk sk-h10" style="width: 30%"></div>
+            <div class="sk sk-h10" style="width: 26%"></div>
+          </div>
+          <div class="sk sk-h16" style="width: 42%"></div>
+          <div class="sk sk-h12" style="width: 30%; margin-top: 10px"></div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; margin: 18px 2px 24px">
+        <div class="sk sk-h18" style="width: 68px"></div>
+        <div class="sk sk-h18" style="width: 92px"></div>
+        <div class="sk sk-h18" style="width: 74px"></div>
+      </div>
+      <div class="sk sk-card" style="margin-bottom: 16px"></div>
+      <div class="sk sk-card" style="margin-bottom: 16px"></div>
+    </template>
     <p v-else-if="notFound">{{ lang.t("game.detail.notFound") }}</p>
 
     <template v-else-if="game">
+      <!-- 预览横幅：编辑申请 / 软删除游戏预览 -->
+      <div v-if="previewing" class="preview-banner" :class="{ deleted: previewDeleted }">
+        <span class="preview-tag">{{ previewDeleted ? lang.t("admin.deletedPreviewTag") : lang.t("admin.changed") }}</span>
+        <span class="preview-text">
+          <template v-if="previewDeleted">
+            {{ lang.t("admin.deletedGameBanner", { name: preview.proposer || "" }) }}
+            <em v-if="preview.data.deleteReason" class="preview-reason">{{ lang.t("admin.deletedReason", { reason: preview.data.deleteReason }) }}</em>
+          </template>
+          <template v-else>{{ lang.t("admin.previewBy", { name: preview.proposer || "" }) }}</template>
+        </span>
+        <button class="preview-exit" @click="exitPreview">{{ previewDeleted ? lang.t("admin.backToAdmin") : lang.t("admin.exitPreview") }}</button>
+      </div>
+
       <!-- 顶部 Hero 背景条：绝对定位、左/右出血铺满整屏，位于卡片后台；
            高度随图片自然比例自适应，不参与文档流、不影响卡片定位 -->
-      <div v-if="game.heroImageUrl" class="hero-bg">
+      <div v-if="displayGame.heroImageUrl" class="hero-bg">
         <img
           class="hero-bg-img"
           :class="{ loaded: heroLoaded }"
-          :src="game.heroImageUrl"
-          :alt="lang.gname(game)"
+          :src="displayGame.heroImageUrl"
+          :alt="lang.gname(displayGame)"
           @load="onHeroLoad"
         />
+        <span v-if="previewing && previewChanged?.hero" class="diff-badge badge-hero">{{ lang.t("admin.changed") }}</span>
       </div>
       <div class="hero">
         <img
           class="cover"
           :class="{ loaded: coverLoaded }"
-          :src="cover(game.coverImageUrl)"
-          :alt="lang.gname(game)"
+          :src="cover(displayGame.coverImageUrl)"
+          :alt="lang.gname(displayGame)"
           @load="onCoverLoad"
         />
+        <span v-if="previewing && previewChanged?.cover" class="diff-badge badge-cover">{{ lang.t("admin.changed") }}</span>
         <div class="info">
           <div class="info-title">
-            <h1>{{ primaryName }}</h1>
+            <div class="title-line">
+              <h1>{{ primaryName }}</h1>
+              <span v-if="previewChanged?.name || previewChanged?.nameEn" class="diff-badge">{{ lang.t("admin.changed") }}</span>
+            </div>
             <div class="title-alt" :class="{ hidden: !secondaryName }">{{ secondaryName }}</div>
           </div>
 
-          <p class="intro-title">{{ lang.t("game.detail.desc") }}</p>
-          <p class="desc">{{ game.description || "—" }}</p>
+          <p class="intro-title">
+            {{ lang.t("game.detail.desc") }}
+            <span v-if="previewing && previewChanged?.description" class="diff-badge">{{ lang.t("admin.changed") }}</span>
+          </p>
+          <p class="desc">{{ displayGame.description || "—" }}</p>
 
           <div class="info-footer">
             <div class="facts">
               <div class="fact">
                 <span class="fact-label">{{ lang.t("game.detail.developer") }}</span>
-                <span class="fact-value">{{ game.developer || lang.t("game.detail.unknown") }}</span>
+                <span class="fact-value">{{ displayGame.developer || lang.t("game.detail.unknown") }}</span>
+                <span v-if="previewing && previewChanged?.developer" class="diff-badge">{{ lang.t("admin.changed") }}</span>
               </div>
               <div class="fact">
                 <span class="fact-label">{{ lang.t("game.detail.publisher") }}</span>
-                <span class="fact-value">{{ game.publisher || lang.t("game.detail.unknown") }}</span>
+                <span class="fact-value">{{ displayGame.publisher || lang.t("game.detail.unknown") }}</span>
+                <span v-if="previewing && previewChanged?.publisher" class="diff-badge">{{ lang.t("admin.changed") }}</span>
               </div>
             </div>
 
             <div class="info-bottom">
-              <div v-if="canManage" class="admin-bar">
-                <RouterLink class="btn-edit" :to="`/games/${game.id}/edit`">{{ lang.t("game.detail.edit") }}</RouterLink>
-                <button class="btn-delete" :disabled="deleting" @click="onDelete">{{ lang.t("game.detail.delete") }}</button>
-                <span v-if="deleteFailed" class="err">{{ deleteFailed }}</span>
-              </div>
-              <div v-else-if="canProposeEdit" class="prop-actions">
-                <button class="prop-btn" @click="openProposal">{{ lang.t("game.detail.proposeEdit") }}</button>
-              </div>
-              <p v-else-if="auth.isLoggedIn && !auth.isAdmin && myPendingEdit" class="edit-pending">
-                {{ lang.t("game.detail.editPendingHint") }}
-              </p>
-              <p v-if="propSubmitted" class="edit-ok">{{ lang.t("game.detail.editProposalSubmitted") }}</p>
+              <template v-if="!previewing">
+                <div v-if="canManage" class="admin-bar">
+                  <RouterLink class="btn-edit" :to="`/games/${game.id}/edit`">{{ lang.t("game.detail.edit") }}</RouterLink>
+                  <button class="btn-delete" :disabled="deleting" @click="onDelete">{{ lang.t("game.detail.delete") }}</button>
+                  <span v-if="deleteFailed" class="err">{{ deleteFailed }}</span>
+                </div>
+                <div v-else-if="canProposeEdit" class="prop-actions">
+                  <button class="prop-btn" @click="goEditApply">{{ lang.t("game.detail.proposeEdit") }}</button>
+                </div>
+                <p v-else-if="auth.isLoggedIn && !auth.isAdmin && myPendingEdit" class="edit-pending">
+                  {{ lang.t("game.detail.editPendingHint") }}
+                </p>
+              </template>
             </div>
           </div>
 
@@ -254,55 +470,20 @@ watch(() => route.params.id, load);
             </template>
             <span v-else class="sc-na">{{ lang.t("game.detail.noScore") }}</span>
           </div>
-          <div v-if="game.score != null" class="counted-reviews">
+          <div v-if="!previewDeleted && game.score != null" class="counted-reviews">
             {{ lang.t("game.detail.countedReviews", { n: countedReviews }) }}
           </div>
         </div>
       </div>
 
       <!-- 标签放在游戏信息模块下方，横向排列 -->
-      <div v-if="game.tags && game.tags.length" class="tags-row">
-        <span v-for="t in game.tags" :key="t" class="tag">{{ lang.tag(t) }}</span>
+      <div v-if="displayGame.tags && displayGame.tags.length" class="tags-row">
+        <span v-if="previewing && previewChanged?.tags" class="diff-badge badge-tags">{{ lang.t("admin.changed") }}</span>
+        <span v-for="t in displayGame.tags" :key="t" class="tag">{{ lang.tag(t) }}</span>
       </div>
 
-      <section v-if="propOpen && game" class="prop-form">
-        <h2>{{ lang.t("game.detail.editProposalTitle") }}</h2>
-        <p class="prop-hint">{{ lang.t("game.detail.editProposalHint") }}</p>
-        <div class="pf-grid">
-          <label>{{ lang.t("game.new.nameZh") }} <span class="req">*</span>
-            <input v-model="editForm.nameZh" />
-          </label>
-          <label>{{ lang.t("game.new.nameEn") }}
-            <input v-model="editForm.nameEn" />
-          </label>
-        </div>
-        <div class="pf-grid">
-          <label>{{ lang.t("game.new.developer") }}
-            <input v-model="editForm.developer" />
-          </label>
-          <label>{{ lang.t("game.new.publisher") }}
-            <input v-model="editForm.publisher" />
-          </label>
-        </div>
-        <label>{{ lang.t("game.new.tags") }}
-          <input v-model="editForm.tagsText" />
-        </label>
-        <label>{{ lang.t("game.new.desc") }}
-          <textarea v-model="editForm.description" rows="4"></textarea>
-        </label>
-        <label>{{ lang.t("game.detail.proposeEditReason") }}
-          <textarea v-model="editForm.reason" rows="2" :placeholder="lang.t('game.detail.proposeEditReasonPh')"></textarea>
-        </label>
-        <p v-if="propError" class="err">{{ propError }}</p>
-        <div class="pf-actions">
-          <button class="pf-submit" :disabled="propSaving" @click="submitProposal">
-            {{ propSaving ? lang.t("common.saving") : lang.t("game.detail.submitProposal") }}
-          </button>
-          <button class="pf-cancel" @click="propOpen = false">{{ lang.t("game.detail.cancelEditProposal") }}</button>
-        </div>
-      </section>
-
-      <section class="reviews-section">
+      <!-- 评测区仅公开页面展示：软删除游戏预览无评测数据，避免误示为空 -->
+      <section v-if="!previewDeleted" class="reviews-section">
         <div class="reviews-head">
           <h2>{{ lang.t("game.detail.reviews", { n: total }) }}</h2>
           <button type="button" class="write-review-btn" @click="openReviewEditor">
@@ -320,15 +501,12 @@ watch(() => route.params.id, load);
         </template>
 
         <p v-if="!myReview && reviews.length === 0" class="hint">{{ lang.t("game.detail.noReviews") }}</p>
-        <p v-else-if="myReview && reviews.length === 0" class="hint">{{ lang.t("game.detail.noReviews") }}</p>
         <div v-if="reviews.length" class="cards other">
           <ReviewCard v-for="r in reviews" :key="r.id" :review="r" detail-panel />
         </div>
 
-        <div v-if="otherTotalPages() > 1" class="pager">
-          <button :disabled="query.page <= 1" @click="goPage(query.page - 1)">{{ lang.t("common.prev") }}</button>
-          <span>{{ query.page }} / {{ otherTotalPages() }}</span>
-          <button :disabled="query.page >= otherTotalPages()" @click="goPage(query.page + 1)">{{ lang.t("common.next") }}</button>
+        <div v-if="hasMore" ref="loadMoreRef" class="reviews-load-more">
+          <span v-if="loadingMore" class="load-more-tip">{{ lang.t("loading") }}</span>
         </div>
       </section>
     </template>
@@ -336,6 +514,107 @@ watch(() => route.params.id, load);
 </template>
 
 <style scoped>
+/* 申请预览横幅：固定在内容顶部，提示当前正查看某位申请人的修改预算 */
+.preview-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--warn-border);
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  position: relative;
+  z-index: 1; /* 置于 Hero 背景条(z-index:0)之上，避免背景图淡入后盖住横幅 */
+}
+/* 软删除预览横幅：危险色系，区分“已删除”状态 */
+.preview-banner.deleted {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.preview-tag {
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--warn-border);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.preview-banner.deleted .preview-tag {
+  background: var(--danger);
+}
+.preview-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-reason {
+  font-style: normal;
+  opacity: 0.85;
+  margin-left: 8px;
+}
+.preview-exit {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--warn-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--warn-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.preview-exit:hover {
+  background: var(--warn-border);
+  color: #fff;
+}
+.preview-banner.deleted .preview-exit {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.preview-banner.deleted .preview-exit:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* “已修改”角标：橙色小胶囊，标识被申请改动的字段/位置 */
+.diff-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--warn-border);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  line-height: 1; /* 不受父级 line-height(如 hero-bg 的 0)影响，保持胶囊高度正常 */
+}
+.title-line {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* 封面左上角、Hero 背景条右上角的“已修改”角标（hero 为绝对定位容器，以此定位） */
+.badge-cover {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  z-index: 2;
+}
+.badge-hero {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+}
+
 .game-page {
   display: flex;
   flex-direction: column;
@@ -350,6 +629,15 @@ watch(() => route.params.id, load);
 .game-page.flush-nav {
   margin-top: -24px;
   padding-top: 24px;
+}
+
+/* 加载完成时：高度已被空态容器锁定，仅做一次柔和淡入，避免内容替换时的生硬跳变 */
+.game-page.content-fade {
+  animation: game-content-fade 0.28s ease;
+}
+@keyframes game-content-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* 顶部 Hero 背景条：绝对定位、左/右出血铺满整屏、位于卡片后台。
@@ -805,6 +1093,12 @@ section h2 {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
+  min-width: 0;
+}
+/* 评测卡作为网格项允许收缩到容器宽度内，避免长内容把卡片撑出内容卡片 */
+.cards > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pager {
@@ -813,6 +1107,19 @@ section h2 {
   align-items: center;
   gap: 12px;
   margin-top: 8px;
+}
+
+/* 触底加载区域：作为 IntersectionObserver 哨兵，滚动进入视口即触发追加 */
+.reviews-load-more {
+  min-height: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 8px;
+}
+.load-more-tip {
+  color: var(--text-2);
+  font-size: 13px;
 }
 
 .pager button {

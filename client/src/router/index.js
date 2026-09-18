@@ -64,11 +64,11 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      // 编辑游戏：仅管理员
+      // 编辑游戏：管理员直接编辑保存；普通用户进入同一页面，提交后生成待审核编辑申请
       path: "/games/:id/edit",
       name: "game-edit",
       component: () => import("@/views/GameEditorView.vue"),
-      meta: { requiresAuth: true, adminOnly: true },
+      meta: { requiresAuth: true },
     },
     {
       // 管理页：站长与管理员均可进入
@@ -91,15 +91,25 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // 修改本人密码：需登录（是否本人由页面二次校验）
+      path: "/user/:userId/password",
+      name: "user-password",
+      component: () => import("@/views/UserPasswordView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      // 未匹配的路由统一渲染 404 页面
       path: "/:pathMatch(.*)*",
-      redirect: "/",
+      name: "not-found",
+      component: () => import("@/views/NotFoundView.vue"),
     },
   ],
-  // 恢复滚动：缓存列表页由 KeepAlive 组件通过 onDeactivated/onActivated 自行保存恢复滚动，
+  // 恢复滚动：缓存页面（列表 + 游戏详情）由 KeepAlive 组件通过
+  // onBeforeRouteLeave / onActivated 自行保存恢复滚动，
   // 这里统一 return false 不让路由历史位置与其冲突（否则会用过时位置覆盖正确值）。
   // 其余页面前进时置顶，后退时用浏览器保存位置。
   scrollBehavior(to, _from, savedPosition) {
-    if (to.name === "game-list" || to.name === "review-list") return false;
+    if (to.name === "game-list" || to.name === "review-list" || to.name === "game-detail") return false;
     if (savedPosition) return savedPosition;
     return { top: 0 };
   },
@@ -108,11 +118,16 @@ const router = createRouter({
 // 守卫：
 // - guestOnly 页面：已登录用户跳回首页
 // - requiresAuth 页面：未登录跳登录页，并记录来路以便登录后返回
-router.beforeEach((to) => {
+// - 登录态下每次导航先同步一次实时角色（/me），使提拔/降职后按钮与入口即时生效
+router.beforeEach(async (to) => {
   const auth = useAuthStore();
 
   if (to.meta.requiresAuth && !auth.isLoggedIn) {
     return { name: "login", query: { redirect: to.fullPath } };
+  }
+  // 已登录：同步最新角色，避免使用陈旧缓存判断权限
+  if (auth.isLoggedIn) {
+    await auth.syncRole();
   }
   // 仅管理员页面：非管理员跳游戏库
   if (to.meta.adminOnly && !auth.isAdmin) {

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import prisma from "../prismaClient.js";
-import { jwtAuth, ownerOnly } from "../middleware/auth.js";
+import { adminOnly, jwtAuth, ownerOnly } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -15,14 +15,22 @@ function parseTags(t) {
   }
 }
 
-// 站长管理页：软删除（不可见）列表：GET /api/admin/deleted（仅站长）
-// 返回被管理员标记为不可见的游戏与评测，站长可在此恢复或真正删除
-router.get("/deleted", jwtAuth, ownerOnly, async (_req, res) => {
+// 管理页：软删除（不可见）列表：GET /api/admin/deleted（站长与管理员可查看）
+// 站长可在此恢复或真正删除；管理员仅能查看（恢复/删除接口仍仅站长）
+router.get("/deleted", jwtAuth, adminOnly, async (_req, res) => {
   const [games, reviews] = await Promise.all([
-    prisma.game.findMany({ where: { deletedAt: { not: null } }, orderBy: { deletedAt: "desc" } }),
+    prisma.game.findMany({
+      where: { deletedAt: { not: null } },
+      include: { deletedBy: { select: { id: true, username: true, nickname: true, avatar: true, role: true } } },
+      orderBy: { deletedAt: "desc" },
+    }),
     prisma.gameReview.findMany({
       where: { deletedAt: { not: null } },
-      include: { author: { select: { id: true, username: true, avatar: true } } },
+      include: {
+        author: { select: { id: true, username: true, avatar: true } },
+        deletedBy: { select: { id: true, username: true, nickname: true, avatar: true, role: true } },
+        game: { select: { id: true, nameZh: true, nameEn: true, logoImageUrl: true, coverImageUrl: true, heroImageUrl: true } },
+      },
       orderBy: { deletedAt: "desc" },
     }),
   ]);
@@ -32,8 +40,40 @@ router.get("/deleted", jwtAuth, ownerOnly, async (_req, res) => {
   });
 });
 
-// 恢复可见：POST /api/admin/restore/:kind/:id（仅站长；kind=game|review）
-router.post("/restore/:kind/:id", jwtAuth, ownerOnly, async (req, res) => {
+// 单条软删除游戏（详情页预览用，站长与管理员可查看）：GET /api/admin/deleted/games/:id
+router.get("/deleted/games/:id", jwtAuth, adminOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "非法 ID" });
+  const game = await prisma.game.findUnique({
+    where: { id },
+    include: { deletedBy: { select: { id: true, username: true, nickname: true, avatar: true, role: true } } },
+  });
+  if (!game || !game.deletedAt) return res.status(404).json({ error: "记录不存在或未删除" });
+  res.json({ ...game, tags: parseTags(game.tags) });
+});
+
+// 单条软删除评测（详情页预览用，站长与管理员可查看）：GET /api/admin/deleted/reviews/:id
+router.get("/deleted/reviews/:id", jwtAuth, adminOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "非法 ID" });
+  const review = await prisma.gameReview.findUnique({
+    where: { id },
+    include: {
+      author: { select: { id: true, username: true, nickname: true, avatar: true, role: true } },
+      deletedBy: { select: { id: true, username: true, nickname: true, avatar: true, role: true } },
+      game: { select: { id: true, nameZh: true, nameEn: true, logoImageUrl: true, coverImageUrl: true, heroImageUrl: true } },
+    },
+  });
+  if (!review || !review.deletedAt) return res.status(404).json({ error: "记录不存在或未删除" });
+  res.json({
+    ...review,
+    ratingParams: review.ratingParams ? JSON.parse(review.ratingParams) : [],
+    tags: parseTags(review.tags),
+  });
+});
+
+// 恢复可见：POST /api/admin/restore/:kind/:id（站长与管理员；kind=game|review）
+router.post("/restore/:kind/:id", jwtAuth, adminOnly, async (req, res) => {
   const id = Number(req.params.id);
   const kind = req.params.kind;
   if (!(kind === "game" || kind === "review")) {
@@ -206,6 +246,69 @@ router.post("/reviews/import", jwtAuth, ownerOnly, async (req, res) => {
     }
   }
   res.json({ created, updated, failed, total: list.length });
+});
+
+// 设为管理员 / 取消管理员：PUT /api/admin/users/:id/role（仅站长）
+// body: { role: "ADMIN" | "USER" }；OWNER 站长权限不可被修改
+router.put("/users/:id/role", jwtAuth, ownerOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  const role = req.body?.role;
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "非法用户 ID" });
+  }
+  if (role !== "ADMIN" && role !== "USER") {
+    return res.status(400).json({ error: "非法角色" });
+  }
+  const target = await prisma.user.findUnique({ where: { id } });
+  if (!target) {
+    return res.status(404).json({ error: "用户不存在" });
+  }
+  if (target.role === "OWNER") {
+    return res.status(403).json({ error: "不能修改站长权限" });
+  }
+  const user = await prisma.user.update({
+    where: { id },
+    data: { role },
+    select: { id: true, username: true, nickname: true, avatar: true, bio: true, role: true, createdAt: true },
+  });
+  res.json(user);
+});
+
+// 彻底删除已注销用户及其全部数据：DELETE /api/admin/users/:id（仅站长）
+// 仅允许删除已注销（REVOKED）用户；删除其评测、点赞/不认可、游戏申请，
+// 并解绑其申请新增的待审游戏，最后删除用户。站长不可被删除。
+router.delete("/users/:id", jwtAuth, ownerOnly, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: "非法用户 ID" });
+  }
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) {
+    return res.status(404).json({ error: "用户不存在" });
+  }
+  if (user.role === "OWNER") {
+    return res.status(403).json({ error: "不能删除站长" });
+  }
+  if (user.role !== "REVOKED") {
+    return res.status(403).json({ error: "仅能彻底删除已注销的用户" });
+  }
+  await prisma.$transaction(async (tx) => {
+    const reviewIds = (
+      await tx.gameReview.findMany({ where: { authorId: id }, select: { id: true } })
+    ).map((r) => r.id);
+    // 删除该用户评测收到的点赞/不认可
+    await tx.gameReviewReaction.deleteMany({ where: { reviewId: { in: reviewIds } } });
+    // 删除该用户对他人评测的点赞/不认可
+    await tx.gameReviewReaction.deleteMany({ where: { userId: id } });
+    // 删除该用户的评测（含草稿）
+    await tx.gameReview.deleteMany({ where: { authorId: id } });
+    // 删除该用户的游戏申请
+    await tx.gameProposal.deleteMany({ where: { proposerId: id } });
+    // 解绑其申请新增的待审游戏（保留游戏本身）
+    await tx.game.updateMany({ where: { submitterId: id }, data: { submitterId: null } });
+    await tx.user.delete({ where: { id } });
+  });
+  res.status(204).end();
 });
 
 export default router;

@@ -5,6 +5,7 @@ import { fetchReviews } from "@/api/review";
 import ReviewCard from "@/components/ReviewCard.vue";
 import { useLangStore } from "@/stores/lang";
 import { consumeFromBack } from "@/utils/backSignal";
+import { consumeGamesDirty, consumeReviewsDirty } from "@/utils/dirtySignal";
 
 const lang = useLangStore();
 defineOptions({ name: "ReviewListView" });
@@ -55,6 +56,9 @@ onBeforeRouteLeave(() => {
 });
 // 通过返回按钮回来时恢复原位；经导航栏/普通跳转进入时置顶。
 onActivated(async () => {
+  // 有数据变更标记（发布/更新/点赞/编辑资料/更新游戏封面等）先刷新列表，再恢复滚动位置
+  const dirty = consumeReviewsDirty() || consumeGamesDirty();
+  if (dirty) await load();
   await nextTick();
   if (consumeFromBack()) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -141,6 +145,13 @@ onActivated(async () => {
   display: grid;
   grid-template-columns: 1fr; /* 详细评测卡片占满整行，逐篇纵向排布 */
   gap: 16px;
+  min-width: 0;
+}
+
+/* 网格项允许收缩到容器宽度内，避免卡片内不换行的简述撑宽轨道导致横向溢出 */
+.cards > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pager {

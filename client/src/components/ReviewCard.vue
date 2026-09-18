@@ -6,6 +6,7 @@ import { aspectLabel } from "@/utils/aspects";
 import { reactToReview } from "@/api/review";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
+import { markReviewsDirty } from "@/utils/dirtySignal";
 
 const props = defineProps({
   review: { type: Object, required: true },
@@ -19,6 +20,15 @@ const lang = useLangStore();
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
+
+// 封面淡入：图片加载完成后才显示（与游戏库封面同款加载方式），按评测 id 去重
+const loadedCovers = reactive(new Set());
+function onCoverLoad(id) {
+  if (id != null) loadedCovers.add(id);
+}
+function isCoverLoaded(id) {
+  return id != null && loadedCovers.has(id);
+}
 
 // 点赞/不认可数量与当前用户态度：本地维护，投票后即时更新
 const local = reactive({
@@ -121,6 +131,7 @@ async function react(kind) {
   }
   try {
     const r = await reactToReview(props.review.id, kind);
+    markReviewsDirty();
     local.likeCount = r.likeCount;
     local.dislikeCount = r.dislikeCount;
     local.myReaction = r.myReaction;
@@ -162,7 +173,16 @@ async function react(kind) {
         <span class="gscore" :title="lang.t('review.rating', { n: ratingText })">{{ ratingText }}</span>
       </div>
       <RouterLink v-if="gamePanel && gameUrl && (gameName || gameCover)" class="lcoverlink" :to="gameUrl">
-        <img v-if="gameCover" class="lcover" :src="gameCover" :alt="gameName" referrerpolicy="no-referrer" loading="lazy" />
+        <img
+          v-if="gameCover"
+          class="lcover"
+          :class="{ loaded: isCoverLoaded(review.id) }"
+          :src="gameCover"
+          :alt="gameName"
+          referrerpolicy="no-referrer"
+          loading="lazy"
+          @load="onCoverLoad(review.id)"
+        />
         <span v-else class="lcover ph">{{ gameName?.charAt(0) || "G" }}</span>
       </RouterLink>
       <!-- 左侧分项评分：随正文一同折叠/展开，点击进入评测详情 -->
@@ -364,6 +384,11 @@ async function react(kind) {
   border-radius: 8px;
   background: var(--surface-2);
   display: block;
+  opacity: 0; /* 加载完毕后才淡入显示，与游戏库封面同款 */
+  transition: opacity 0.5s ease;
+}
+.lcover.loaded {
+  opacity: 1;
 }
 .lcover.ph {
   display: flex;
@@ -631,6 +656,11 @@ async function react(kind) {
   -webkit-mask-image: linear-gradient(#000 0%, #000 calc(100% - 56px), transparent 100%);
   mask-image: linear-gradient(#000 0%, #000 calc(100% - 56px), transparent 100%);
 }
+/* 游戏详情评测卡：正文收缩高度为列表版的一半 */
+.card.detail .body.collapsed {
+  min-height: 140px;
+  max-height: 140px;
+}
 /* 展开后正文最高为折叠态的三倍（280 × 3），仅在正文确实超长时应用，避免误伤未超长/已完全展开的正文 */
 .body.opened {
   max-height: 840px; /* 展开后上限为折叠态三倍；仅在正文确实达到上限时截断（见 .trunc） */
@@ -760,6 +790,7 @@ async function react(kind) {
 }
 .card.detail .aspects {
   margin-top: 0; /* 覆盖评测库规则的 2px 上边距，避免分项上方额外撑大 */
+  min-width: 0; /* 窄屏时允许横向压缩，避免横向分项行撑破卡片 */
   padding-left: 5px; /* 分项评分整体距右栏左缘 5px */
 }
 .card.detail {
@@ -771,6 +802,7 @@ async function react(kind) {
 }
 .card.detail .dbanner {
   flex: 1 1 100%; /* 独占整行，位于左/右容器上方 */
+  min-width: 0; /* 允许整行随窄屏收缩，避免行内内容撑破卡片与整页 */
   display: flex;
   align-items: center;
   gap: 10px;
@@ -802,8 +834,15 @@ async function react(kind) {
   flex-shrink: 0;
 }
 .card.detail .brief {
-  flex: 1 1 auto; /* 分数位于简述左侧后，简述吸收剩余宽度 */
+  flex: 1 1 0; /* 简述吸收并让出空间、可收缩，保证右侧固定的分数不被顶出 */
   min-width: 0;
+  max-width: 100%; /* 覆盖基础规则 45%，始终在内容卡片内 */
+  white-space: nowrap; /* 单行，超出直接截断省略 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px; /* 该处简述缩小 4px（18→14） */
+  color: var(--text-2);
+  text-align: right;
 }
 .card.detail .dscore {
   display: inline-flex;
