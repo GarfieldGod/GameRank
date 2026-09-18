@@ -31,8 +31,8 @@ const ratingText = computed(() => {
 // 作者信息卡片：昵称（回退用户名）、头像首字母、排行榜游戏数、游戏排名
 const authorName = computed(() => review.value?.author?.nickname || review.value?.author?.username || "");
 const authorProfileUrl = computed(() => {
-  const id = review.value?.author?.id;
-  return id ? `/user/${id}` : "";
+  const username = review.value?.author?.username;
+  return username ? `/user/${username}` : "";
 });
 const avatarInitial = computed(() => (authorName.value ? authorName.value.charAt(0).toUpperCase() : "?"));
 const reviewTotal = computed(() => review.value?.authorReviewTotal ?? 0);
@@ -221,7 +221,7 @@ loadPreview();
       <!-- 作者信息卡片：上容器=作者信息（头像+昵称/排行+时间），下容器=分项评测 -->
       <div v-if="review.author || params.length" class="author-card">
         <div v-if="review.author" class="ac-row">
-          <RouterLink class="ac-main" :to="`/user/${review.author.id}`">
+          <RouterLink class="ac-main" :to="`/user/${review.author.username}`">
             <img v-if="review.author.avatar" class="ac-avatar" :src="review.author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
             <span v-else class="ac-avatar ph">{{ avatarInitial }}</span>
             <span class="ac-info">

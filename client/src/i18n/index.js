@@ -58,6 +58,7 @@ const zh = {
   "games.pending": "审核中",
   "games.applyAdd": "添加游戏",
   "games.loadedAll": "已加载全部游戏",
+  "games.rankTip": "该游戏在所有排行榜中位于 {n} 位",
   "loading": "加载中…",
 
   "game.detail.developer": "制作公司",
@@ -424,6 +425,7 @@ const en = {
   "games.pending": "Pending",
   "games.applyAdd": "Add Game",
   "games.loadedAll": "All games loaded",
+  "games.rankTip": "This game is ranked #{n} on the leaderboard",
   "loading": "Loading…",
 
   "game.detail.developer": "Developer",

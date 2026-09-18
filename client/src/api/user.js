@@ -5,6 +5,11 @@ export function fetchUser(userId) {
   return request.get(`/users/${userId}`).then((r) => r.data);
 }
 
+// 获取用户公开资料（按唯一用户名；个人主页 URL 采用 username，避免暴露自增 id）
+export function fetchUserByUsername(username) {
+  return request.get(`/users/by-username/${encodeURIComponent(username)}`).then((r) => r.data);
+}
+
 // 获取全部用户（含角色，供站长管理页使用）
 export function fetchUsers() {
   return request.get("/users").then((r) => r.data);

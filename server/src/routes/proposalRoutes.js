@@ -19,6 +19,8 @@ function shape(p) {
       nameZh: p.game.nameZh,
       nameEn: p.game.nameEn,
       coverImageUrl: p.game.coverImageUrl,
+      logoImageUrl: p.game.logoImageUrl,
+      heroImageUrl: p.game.heroImageUrl,
       status: p.game.status,
       tags: Array.isArray(p.game.tags)
         ? p.game.tags
@@ -65,7 +67,7 @@ router.get("/mine", jwtAuth, async (req, res) => {
   const list = await prisma.gameProposal.findMany({
     where: { proposerId: req.userId },
     include: {
-      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, status: true, tags: true } },
+      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true, status: true, tags: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -79,7 +81,7 @@ router.get("/:id", jwtAuth, async (req, res) => {
     where: { id },
     include: {
       proposer: { select: { id: true, username: true, nickname: true, avatar: true } },
-      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, status: true, tags: true } },
+      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true, status: true, tags: true } },
     },
   });
   if (!p) return res.status(404).json({ error: "proposal not found" });
@@ -179,7 +181,7 @@ router.put("/:id", jwtAuth, async (req, res) => {
       data: { data: JSON.stringify(next), reason },
       include: {
         proposer: { select: { id: true, username: true, nickname: true, avatar: true } },
-        game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, status: true, tags: true } },
+        game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true, status: true, tags: true } },
       },
     });
   });
@@ -228,6 +230,33 @@ router.post("/:id/approve", jwtAuth, adminOnly, async (req, res) => {
         where: { id: proposal.gameId, status: "PENDING" },
         data: { status: "APPROVED" },
       });
+      // 若新游戏的英文名命中墓碑（同名游戏曾被硬删），把此前暂存在 staleGameId 的
+      // 评测关联映射回新游戏 id，并清除墓碑
+      if (proposal.gameId) {
+        const newGame = await tx.game.findUnique({ where: { id: proposal.gameId } });
+        if (newGame) {
+          // 墓碑重映射：被硬删的同名游戏曾关联的评测（staleGameId）映射回新游戏
+          const tombs = await tx.gameTombstone.findMany({ where: { nameEn: newGame.nameEn } });
+          for (const t of tombs) {
+            await tx.gameReview.updateMany({
+              where: { staleGameId: t.id },
+              data: { gameId: newGame.id, staleGameId: null },
+            });
+            await tx.gameTombstone.delete({ where: { id: t.id } });
+          }
+          // 补链历史评测：中/英文名命中新游戏但此前从未关联（无墓碑、gameId 为空）的评测
+          // 也映射到新游戏，恢复封面与跳转。须在墓碑处理之后执行，避免重复处理已映射评测。
+          const nameConds = [];
+          if (newGame.nameZh) nameConds.push({ gameName: newGame.nameZh });
+          if (newGame.nameEn) nameConds.push({ gameName: newGame.nameEn });
+          if (nameConds.length) {
+            await tx.gameReview.updateMany({
+              where: { deletedAt: null, gameId: null, OR: nameConds },
+              data: { gameId: newGame.id, staleGameId: null },
+            });
+          }
+        }
+      }
     } else if (proposal.kind === "EDIT" && proposal.gameId) {
       // 编辑：将申请的数据应用到目标游戏（不改动由评测生成的 score）
       await tx.game.update({
@@ -252,7 +281,7 @@ router.post("/:id/approve", jwtAuth, adminOnly, async (req, res) => {
       data: { status: "APPROVED", rejectReason: null, reviewedAt: new Date() },
       include: {
         proposer: { select: { id: true, username: true, nickname: true, avatar: true } },
-        game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, status: true, tags: true } },
+        game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true, status: true, tags: true } },
       },
     });
   });
@@ -289,7 +318,7 @@ router.post("/:id/reject", jwtAuth, adminOnly, async (req, res) => {
     where: { id },
     include: {
       proposer: { select: { id: true, username: true, nickname: true, avatar: true } },
-      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, status: true, tags: true } },
+      game: { select: { id: true, nameZh: true, nameEn: true, coverImageUrl: true, logoImageUrl: true, heroImageUrl: true, status: true, tags: true } },
     },
   });
   res.json(shape(updated));

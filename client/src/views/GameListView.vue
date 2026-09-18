@@ -239,6 +239,7 @@ onBeforeUnmount(() => {
                 @load="onCoverLoad(g.id)"
               />
             </RouterLink>
+            <span v-if="g.score != null && g.scoreRank != null" class="rank-badge" :title="lang.t('games.rankTip', { n: g.scoreRank })">{{ g.scoreRank }}</span>
             <div class="body">
               <h3 class="gname">
                 <RouterLink :to="`/game/${g.id}`" :title="lang.gname(g)">{{ lang.gname(g) }}</RouterLink>
@@ -480,12 +481,15 @@ h1 {
 }
 
 .card {
+  position: relative; /* 封面绝对定位参照 */
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
+  overflow: hidden; /* 缩放放大的封面被裁切在圆角内 */
   background: var(--surface);
   display: flex;
   flex-direction: column;
+  justify-content: flex-end; /* 信息区贴底，封面上方留出展示区 */
+  aspect-ratio: 4 / 3; /* 卡片整体比例，匹配库封面与裁剪框取景（参考封面图约 728×546 的 4:3 比例） */
   transition: box-shadow 0.15s;
 }
 
@@ -498,25 +502,41 @@ h1 {
 }
 
 .cover {
+  position: absolute; /* 铺满整张卡片作背景，信息区叠在其上 */
+  inset: 0;
   width: 100%;
-  height: 150px;
+  height: 100%;
   object-fit: cover;
   display: block;
   background: var(--surface-2);
   /* 未就绪时保持透明，图片加载完成后渐变淡入，避免先看到别的比例再跳到裁剪后的突兀感 */
   opacity: 0;
-  transition: opacity 0.5s ease;
+  transition: opacity 0.5s ease, transform 0.45s ease;
 }
 .cover.loaded {
   opacity: 1;
 }
 
 .body {
-  position: relative; /* 作为分数条绝对定位的参照 */
-  padding: 12px 14px;
+  position: relative; /* 作为分数条绝对定位的参照；叠在封面背景之上 */
+  z-index: 1;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  background: var(--surface); /* 默认不透明，保证信息清晰可读 */
+  transition: background 0.35s ease;
+}
+
+/* 悬停：封面放大，信息区背景与排名徽章背景变为半透明(50%)，露出放大的封面 */
+.card:hover .cover {
+  transform: scale(1.06);
+}
+.card:hover .body {
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
+}
+.card:hover .rank-badge {
+  background: color-mix(in srgb, var(--surface-2) 50%, transparent);
 }
 
 .gname {
@@ -542,6 +562,25 @@ h1 {
 
 .gname a:hover {
   color: var(--primary);
+}
+
+/* 分数排名徽章：圆角矩形框，覆盖在封面图左上角（无分数的游戏不显示） */
+.rank-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  padding: 4px 11px;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: background 0.35s ease;
 }
 
 /* “审核中”徽章：用户本人待审批的新增游戏显示 */

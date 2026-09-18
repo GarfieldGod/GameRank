@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter, RouterLink } from "vue-router";
-import { fetchUser, setUserRole, deactivateAccount } from "@/api/user";
+import { fetchUserByUsername, setUserRole, deactivateAccount } from "@/api/user";
 import { fetchReviews, deleteReview } from "@/api/review";
 import { fetchMyProposals, deleteProposal } from "@/api/proposal";
 import { gameDisplayName } from "@/utils/markdown";
@@ -55,8 +55,9 @@ watch(proposalPageCount, () => {
   if (proposalPage.value > proposalPageCount.value) proposalPage.value = proposalPageCount.value;
 });
 
-const userId = () => Number(route.params.userId);
-const isOwn = () => auth.isLoggedIn && auth.user?.id === userId();
+// URL 用唯一账号 username（不暴露自增 id）；需要数字 id 的调用都在 profile 加载后用 profile.id
+const routeUsername = () => route.params.username;
+const isOwn = () => auth.isLoggedIn && auth.user?.username === routeUsername();
 const isDraftTab = () => activeTab.value === "draft";
 const isSubmissionTab = () => activeTab.value === "submission";
 const isSettingsTab = () => activeTab.value === "settings";
@@ -72,7 +73,7 @@ async function onDeactivate() {
     if (profile.value) profile.value.role = updated.role;
     auth.logout();
     activeTab.value = "published";
-    router.replace(`/user/${profile.value.id}`);
+    router.replace(`/user/${profile.value.username}`);
   } catch (err) {
     window.alert(extractError(err, lang.t("user.profile.deactivateFailed")));
   } finally {
@@ -106,7 +107,7 @@ async function loadProfile() {
   notFound.value = false;
   profile.value = null;
   try {
-    profile.value = await fetchUser(userId());
+    profile.value = await fetchUserByUsername(routeUsername());
   } catch (err) {
     if (err?.response?.status === 404 || err?.status === 404) {
       router.replace({ name: "not-found" });
@@ -119,13 +120,14 @@ async function loadProfile() {
 }
 
 async function loadReviews() {
+  if (!profile.value) return; // profile 内才有 id；未就绪时由 loadProfile 完成后重新触发
   loadingReviews.value = true;
   try {
     const isDraft = isDraftTab();
     const data = await fetchReviews({
       page: query.page,
       pageSize,
-      authorId: userId(),
+      authorId: profile.value.id,
       status: isDraft ? "DRAFT" : undefined,
       sort: isDraft ? undefined : "rating",
     });
@@ -182,7 +184,12 @@ function reapply(p) {
   router.push("/games/new?" + q.toString());
 }
 function proposalCover(p) {
-  return p.game?.coverImageUrl || p.data?.coverImageUrl || "";
+  // 库封面优先级：logo → 详情封面 → 背景（与游戏库卡片同款）；先取关联游戏，再取申请快照
+  return (
+    p.game?.logoImageUrl || p.game?.coverImageUrl || p.game?.heroImageUrl ||
+    p.data?.logoImageUrl || p.data?.coverImageUrl || p.data?.heroImageUrl ||
+    ""
+  );
 }
 
 // 重新编辑被删除的评测：按快照预填游戏名与简述，进入评测编辑器（标题由游戏名生成）
@@ -218,7 +225,8 @@ function formatRating(r) {
 }
 
 function coverOf(r) {
-  return r.game?.coverImageUrl || r.coverImageUrl || "";
+  // 库封面优先级：logo → 详情封面 → 背景（与游戏库/评测卡片同款），避免露出 SteamGridDB grid 图
+  return r.game?.logoImageUrl || r.game?.coverImageUrl || r.game?.heroImageUrl || r.coverImageUrl || "";
 }
 
 // 排行榜简介：优先取一句话简评，没有则取正文第一段
@@ -281,14 +289,16 @@ function formatTime(t) {
 
 function routeChange() {
   query.page = 1;
-  loadProfile();
   // 路由可直接以 ?tab=submission 直达（如编辑申请保存后跳回）：此时初始标签已是事务，
-  // 需主动加载申请列表，否则列表为空
+  // 主动加载申请列表即可；评测列表依赖 profile（内含 id），待 profile 就绪后再加载
   if (activeTab.value === "submission") {
     loadProposals();
-  } else if (activeTab.value !== "settings") {
-    loadReviews();
   }
+  loadProfile().then(() => {
+    if (activeTab.value !== "submission" && activeTab.value !== "settings") {
+      loadReviews();
+    }
+  });
 }
 
 onMounted(routeChange);
@@ -380,10 +390,10 @@ onMounted(routeChange);
       <template v-if="isSettingsTab()">
         <h2 class="section-title">{{ lang.t("user.profile.settings") }}</h2>
         <div class="settings-card">
-          <RouterLink class="settings-btn" :to="`/user/${profile.id}/edit`">
+          <RouterLink class="settings-btn" :to="`/user/${profile.username}/edit`">
             {{ lang.t("user.profile.edit") }}
           </RouterLink>
-          <RouterLink class="settings-btn" :to="`/user/${profile.id}/password`">
+          <RouterLink class="settings-btn" :to="`/user/${profile.username}/password`">
             {{ lang.t("user.profile.changePassword") }}
           </RouterLink>
           <button class="settings-btn danger" :disabled="deactivating" @click="onDeactivate">
@@ -449,7 +459,7 @@ onMounted(routeChange);
         </p>
         <div v-else-if="!isDraftTab()" class="ranking-list">
           <RouterLink v-for="(r, idx) in reviews" :key="r.id" class="ranking-item" :to="`/reviews/${r.id}`">
-            <span class="rank-no">#{{ r.authorRank ?? idx + 1 }}</span>
+            <span class="rank-no">{{ r.authorRank ?? idx + 1 }}</span>
             <img class="rank-cover" :class="{ loaded: isCoverLoaded(r.id) }" :src="coverOf(r)" :alt="gameDisplayName(r, lang.isEn)" loading="lazy" @load="onCoverLoad(r.id)" />
             <div class="rank-info">
               <span class="rank-game">{{ gameDisplayName(r, lang.isEn) }}</span>
@@ -532,6 +542,8 @@ onMounted(routeChange);
   margin: 0;
   font-size: 22px;
   color: var(--text);
+  margin-top: 4px;
+  margin-bottom: 2px;
 }
 
 .name-line {
@@ -564,14 +576,18 @@ onMounted(routeChange);
   margin: 0;
 }
 
-/* 设置卡片：编辑资料 / 修改密码 / 注销账号 合并在同一卡片，按钮水平居中排布 */
+/* 设置卡片：编辑资料 / 修改密码 / 注销账号 合并在同一卡片，按钮垂直排列并居中 */
 .settings-card {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-direction: column; /* 三个按钮垂直排列 */
+  align-items: center;    /* 水平居中 */
   gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
 }
 .settings-btn {
+  width: 20%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -798,16 +814,22 @@ onMounted(routeChange);
 }
 .rank-no {
   flex-shrink: 0;
-  min-width: 38px;
-  font-size: 18px;
+  width: 72px;
+  height: 72px;
+  font-size: 28px;
   font-weight: 800;
   color: var(--text-3);
-  text-align: center;
+  display: flex;
+  align-items: center;    /* 垂直居中 */
+  justify-content: center; /* 水平居中 */
   font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0;
 }
 .rank-cover {
   width: 96px;
-  height: 76px;
+  height: 72px;
   object-fit: cover;
   border-radius: 6px;
   flex-shrink: 0;
@@ -826,7 +848,9 @@ onMounted(routeChange);
   gap: 4px;
 }
 .rank-game {
+  font-size: 22px;
   font-weight: 600;
+  padding-bottom: 12px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;

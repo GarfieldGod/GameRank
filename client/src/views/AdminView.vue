@@ -197,6 +197,9 @@ async function onApprove(p) {
   try {
     await approveProposal(p.id);
     markGamesDirty();
+    // 审批通过可能触发评测重映射（ADD 恢复同名游戏关联）或改动游戏封面/名称（EDIT），
+    // 一并标记评测脏，让评测库 KeepAlive 缓存刷新，避免旧封面/旧跳转残留
+    markReviewsDirty();
     proposals.value = proposals.value.filter((x) => x.id !== p.id);
   } catch (err) {
     pendingError.value = extractError(err, lang.t("admin.failed"));
@@ -457,7 +460,7 @@ onBeforeUnmount(stopOnlinePoll);
         <h2>{{ lang.t("admin.adminList") }}（{{ admins.length }}）</h2>
         <ul class="user-list">
           <li v-for="u in pagedAdmins" :key="u.id" class="user-row">
-            <RouterLink class="u-link" :to="`/user/${u.id}`">
+            <RouterLink class="u-link" :to="`/user/${u.username}`">
               <img v-if="u.avatar" class="u-avatar" :src="u.avatar" alt="" />
               <span v-else class="u-avatar placeholder">{{ (displayName(u) || "?")[0] }}</span>
               <div class="u-info">
@@ -491,7 +494,7 @@ onBeforeUnmount(stopOnlinePoll);
         <h2>{{ lang.t("admin.userList") }}（{{ normalUsers.length }}）</h2>
         <ul class="user-list">
           <li v-for="u in pagedNormalUsers" :key="u.id" class="user-row">
-            <RouterLink class="u-link" :to="`/user/${u.id}`">
+            <RouterLink class="u-link" :to="`/user/${u.username}`">
               <img v-if="u.avatar" class="u-avatar" :src="u.avatar" alt="" />
               <span v-else class="u-avatar placeholder">{{ (displayName(u) || "?")[0] }}</span>
               <div class="u-info">

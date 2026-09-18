@@ -125,6 +125,20 @@ router.get("/", optionJwtAuth, async (req, res) => {
     if (sb !== sa) return sb - sa; // 实时均分降序，无评分排最后
     return new Date(b.createdAt) - new Date(a.createdAt); // 同分新游戏优先
   });
+  // 全局分数排名：仅给有分数的游戏编号，同分并列（如 1,1,3）；无分数返回 null
+  let sRank = 0;
+  let lastScore = null;
+  let lastRank = 0;
+  for (const g of scored) {
+    if (g.score == null) {
+      g.scoreRank = null;
+      continue;
+    }
+    sRank += 1;
+    if (lastScore === null || g.score !== lastScore) lastRank = sRank;
+    g.scoreRank = lastRank;
+    lastScore = g.score;
+  }
   const total = scored.length;
   const start = (page - 1) * pageSize;
   const games = scored.slice(start, start + pageSize);

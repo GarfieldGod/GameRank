@@ -11,7 +11,7 @@ const router = useRouter();
 const auth = useAuthStore();
 const lang = useLangStore();
 
-const targetUserId = () => Number(route.params.userId);
+const targetUsername = () => route.params.username;
 
 const form = ref({ currentPassword: "", newPassword: "", confirm: "" });
 const error = ref("");
@@ -33,7 +33,7 @@ async function save() {
     await changePassword({ currentPassword: form.value.currentPassword, newPassword: p });
     window.alert(lang.t("user.password.success"));
     auth.logout(); // 修改密码后需重新登录
-    router.replace({ name: "login", query: { redirect: `/user/${targetUserId()}` } });
+    router.replace({ name: "login", query: { redirect: `/user/${targetUsername()}` } });
   } catch (err) {
     error.value = extractError(err, lang.t("user.password.failed"));
   } finally {
@@ -42,8 +42,8 @@ async function save() {
 }
 
 onMounted(() => {
-  if (!auth.isLoggedIn || auth.user?.id !== targetUserId()) {
-    router.replace(`/user/${targetUserId()}`);
+  if (!auth.isLoggedIn || auth.user?.username !== targetUsername()) {
+    router.replace(`/user/${targetUsername()}`);
   }
 });
 </script>
@@ -83,10 +83,10 @@ onMounted(() => {
       <p v-if="error" class="err">{{ error }}</p>
 
       <div class="actions">
+        <RouterLink class="cancel" :to="`/user/${targetUsername()}`">{{ lang.t("common.cancel") }}</RouterLink>
         <button class="primary" type="submit" :disabled="saving">
           {{ saving ? lang.t("common.saving") : lang.t("common.save") }}
         </button>
-        <RouterLink class="cancel" :to="`/user/${targetUserId()}`">{{ lang.t("common.cancel") }}</RouterLink>
       </div>
     </form>
   </div>
@@ -124,6 +124,7 @@ input {
   font-size: 14px;
 }
 .actions {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 12px;

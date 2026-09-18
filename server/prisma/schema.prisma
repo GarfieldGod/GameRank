@@ -53,6 +53,7 @@ model GameReview {
   author        User     @relation(fields: [authorId], references: [id]) // 关联 User
   gameId        Int? // 关联的游戏 id（可空，草稿或历史数据可能为空）
   game          Game?    @relation(fields: [gameId], references: [id]) // 关联 Game，用于语言化名称与封面
+  staleGameId   Int? // 原关联游戏 id：游戏被硬删时暂存旧关联，供同名游戏重新加入时恢复（普通数字，非外键）
   reactions     GameReviewReaction[] // 该评测收到的点赞/不认可
   publishedAt   DateTime @default(now()) // 发布时间
   updatedAt     DateTime @updatedAt // 更新时间
@@ -106,6 +107,15 @@ model Game {
   proposals GameProposal[] // 该游戏的申请记录
 
   @@map("Game")
+}
+
+// 游戏墓碑：游戏被硬删（purge）时保留旧 id 与英文名，供同名游戏重新加入时把评测关联映射回新游戏
+model GameTombstone {
+  id     Int    @id // 原游戏 id（硬删后保留，重加同名游戏时据此找回异构评测）
+  nameEn String // 原游戏英文名（新增同名游戏时以此匹配墓碑）
+
+  @@index([nameEn])
+  @@map("GameTombstone")
 }
 
 // 游戏申请（新增 / 编辑）表：由普通用户提交，站长/管理员审批

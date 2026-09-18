@@ -46,13 +46,13 @@ function avatarUrl(url) {
         <RouterLink v-if="auth.isAdmin" class="btn-manage" to="/admin">{{ lang.t("nav.manage") }}</RouterLink>
 
         <div class="user-menu">
-          <RouterLink class="user-trigger" :to="`/user/${auth.user?.id}`">
+          <RouterLink class="user-trigger" :to="`/user/${auth.user?.username}`">
             <img class="avatar" :src="avatarUrl(auth.user?.avatar)" :alt="userDisplay" />
             <span class="user-name">{{ userDisplay }}</span>
           </RouterLink>
           <div class="dropdown">
             <div class="dropdown-inner">
-              <RouterLink class="dropdown-item" :to="`/user/${auth.user?.id}`">{{ lang.t("nav.myProfile") }}</RouterLink>
+              <RouterLink class="dropdown-item" :to="`/user/${auth.user?.username}`">{{ lang.t("nav.myProfile") }}</RouterLink>
               <RouterLink class="dropdown-item" to="/reviews/new">{{ lang.t("nav.writeReview") }}</RouterLink>
               <button class="dropdown-item logout" @click="onLogout">{{ lang.t("nav.logout") }}</button>
             </div>

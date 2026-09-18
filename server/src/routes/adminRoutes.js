@@ -103,10 +103,18 @@ router.post("/purge/:kind/:id", jwtAuth, ownerOnly, async (req, res) => {
   if (kind === "game") {
     const game = await prisma.game.findUnique({ where: { id } });
     if (!game) return res.status(404).json({ error: "记录不存在" });
-    // 先解绑引用该游戏的评测，评测文章本身保留
-    await prisma.gameReview.updateMany({ where: { gameId: id }, data: { gameId: null } });
-    await prisma.gameProposal.deleteMany({ where: { gameId: id } });
-    await prisma.game.delete({ where: { id } });
+    await prisma.$transaction([
+      prisma.gameProposal.deleteMany({ where: { gameId: id } }),
+      // 评测脱离外键引用（gameId 置空），但把旧关联暂存到 staleGameId，
+      // 供<script>同名游戏重新加入时映射回新 id</script>（评测文章本身保留）
+      prisma.gameReview.updateMany({
+        where: { gameId: id },
+        data: { gameId: null, staleGameId: id },
+      }),
+      prisma.game.delete({ where: { id } }),
+      // 墓碑：保留原 id + 英文名，新增同名游戏时据此恢复评测关联
+      prisma.gameTombstone.create({ data: { id, nameEn: game.nameEn } }),
+    ]);
   } else {
     const review = await prisma.gameReview.findUnique({ where: { id } });
     if (!review) return res.status(404).json({ error: "记录不存在" });

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
-import { fetchUser, updateProfile } from "@/api/user";
+import { fetchUserByUsername, updateProfile } from "@/api/user";
 import { uploadImage } from "@/api/review";
 import { extractError } from "@/api/request";
 import { markReviewsDirty } from "@/utils/dirtySignal";
@@ -15,7 +15,7 @@ const auth = useAuthStore();
 const lang = useLangStore();
 const theme = useThemeStore();
 
-const targetUserId = () => Number(route.params.userId);
+const targetUsername = () => route.params.username;
 
 const form = ref({ username: "", nickname: "", avatar: "", bio: "" });
 const error = ref("");
@@ -61,7 +61,7 @@ async function save() {
     await updateProfile({ nickname: form.value.nickname, avatar: form.value.avatar, bio: form.value.bio });
     await auth.refresh(); // 同步导航栏等处的登录用户信息
     markReviewsDirty();
-    router.push(`/user/${targetUserId()}`);
+    router.push(`/user/${targetUsername()}`);
   } catch (err) {
     error.value = extractError(err, lang.t("user.edit.saveFailed"));
   } finally {
@@ -71,12 +71,12 @@ async function save() {
 
 onMounted(async () => {
   // 权限校验：仅本人可编辑资料
-  if (!auth.isLoggedIn || auth.user?.id !== targetUserId()) {
-    router.replace(`/user/${targetUserId()}`);
+  if (!auth.isLoggedIn || auth.user?.username !== targetUsername()) {
+    router.replace(`/user/${targetUsername()}`);
     return;
   }
   try {
-    const u = await fetchUser(targetUserId());
+    const u = await fetchUserByUsername(targetUsername());
     form.value = { username: u.username, nickname: u.nickname || "", avatar: u.avatar || "", bio: u.bio || "" };
   } finally {
     loading.value = false;
@@ -89,33 +89,39 @@ onMounted(async () => {
     <h1>{{ lang.t("user.edit.title") }}</h1>
 
     <form v-if="!loading" class="edit-form" @submit.prevent="save">
-      <div class="avatar-row">
-        <img class="avatar" :src="avatarUrl(form.avatar)" alt="avatar" />
-        <button type="button" class="upload-btn" :disabled="uploading" @click="avatarInput.click()">
-          {{ uploading ? lang.t("game.new.uploading") : lang.t("user.edit.avatar") }}
-        </button>
-        <input ref="avatarInput" type="file" accept="image/*" hidden @change="onPickAvatar" />
+      <div class="edit-all">
+        <div class="info-row">
+          <div class="avatar-row">
+            <img class="avatar" :src="avatarUrl(form.avatar)" alt="avatar" />
+            <button type="button" class="upload-btn" :disabled="uploading" @click="avatarInput.click()">
+              {{ uploading ? lang.t("game.new.uploading") : lang.t("user.edit.avatar") }}
+            </button>
+            <input ref="avatarInput" type="file" accept="image/*" hidden @change="onPickAvatar" />
+          </div>
+          <div class="name-info-row">
+            <label>{{ lang.t("user.edit.nickname") }}
+              <input v-model="form.nickname" maxlength="20" :placeholder="lang.t('user.edit.nicknamePlaceholder')" />
+            </label>
+            <label>{{ lang.t("user.edit.username") }}
+              <input v-model="form.username" disabled />
+            </label>
+          </div>
+        </div>
+
+        <div class="brief">
+          <label>{{ lang.t("user.edit.bio") }}
+            <textarea v-model="form.bio" rows="4" maxlength="200" :placeholder="lang.t('user.edit.placeholder')"></textarea>
+          </label>
+        </div>
       </div>
-
-      <label>{{ lang.t("user.edit.username") }}
-        <input v-model="form.username" disabled />
-      </label>
-
-      <label>{{ lang.t("user.edit.nickname") }}
-        <input v-model="form.nickname" maxlength="20" :placeholder="lang.t('user.edit.nicknamePlaceholder')" />
-      </label>
-
-      <label>{{ lang.t("user.edit.bio") }}
-        <textarea v-model="form.bio" rows="4" maxlength="200" :placeholder="lang.t('user.edit.placeholder')"></textarea>
-      </label>
 
       <p v-if="error" class="err">{{ error }}</p>
 
       <div class="actions">
+        <RouterLink class="cancel" :to="`/user/${targetUsername()}`">{{ lang.t("common.cancel") }}</RouterLink>
         <button class="primary" type="submit" :disabled="saving">
           {{ saving ? lang.t("common.saving") : lang.t("common.save") }}
         </button>
-        <RouterLink class="cancel" :to="`/user/${targetUserId()}`">{{ lang.t("common.cancel") }}</RouterLink>
       </div>
     </form>
   </div>
@@ -123,21 +129,44 @@ onMounted(async () => {
 
 <style scoped>
 .edit-page {
-  max-width: 520px;
+  max-width: 500px;
   margin: 0 auto;
 }
 
 .edit-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 28px;
   margin-top: 16px;
+  background: var(--surface);
+  padding: 18px;
+  border-radius: 20px;
+}
+
+.edit-all {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.info-row {
+  display: flex;
+  flex-direction: row;
+  gap: 28px;
 }
 
 .avatar-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 16px;
+  margin-left: auto;
+}
+
+.name-info-row {
+  min-width: 300px;
+  margin-left: auto;
+  flex-direction: column;
 }
 
 .avatar {
@@ -166,6 +195,7 @@ label {
   flex-direction: column;
   gap: 6px;
   font-size: 14px;
+  margin-top: 3px;
   color: var(--text-1);
 }
 
@@ -194,6 +224,7 @@ input:disabled {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-left: auto;
 }
 
 .primary {

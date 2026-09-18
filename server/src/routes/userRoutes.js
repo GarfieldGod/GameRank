@@ -66,6 +66,29 @@ router.put("/me", jwtAuth, async (req, res) => {
   res.json(user);
 });
 
+// 用户详情（按用户名）：GET /api/users/by-username/:username
+// URL 采用唯一的账号 username，避免在链接中暴露自增 id（创建序号）；仅本站跳转使用。
+// 注意：须注册在 /:id 之前，否则 :id 会拦截该路径。
+router.get("/by-username/:username", async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { username: req.params.username },
+    select: {
+      id: true,
+      username: true,
+      nickname: true,
+      avatar: true,
+      bio: true,
+      role: true,
+      lastActiveAt: true,
+      createdAt: true,
+    },
+  });
+  if (!user) {
+    return res.status(404).json({ error: "user not found" });
+  }
+  res.json(user);
+});
+
 // 用户详情：GET /api/users/:id（头像、简介、角色、创建时间；评测列表用 /api/reviews?authorId= 分页获取）
 router.get("/:id", async (req, res) => {
   const id = Number(req.params.id);

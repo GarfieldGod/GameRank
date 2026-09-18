@@ -78,21 +78,21 @@ const router = createRouter({
       meta: { requiresAuth: true, adminOnly: true },
     },
     {
-      // 个人主页：任何人可访问
-      path: "/user/:userId",
+      // 个人主页：任何人可访问（URL 用唯一账号 username，避免暴露自增 id）
+      path: "/user/:username",
       name: "user-profile",
       component: () => import("@/views/UserProfileView.vue"),
     },
     {
       // 编辑本人资料：需登录（是否本人由页面二次校验）
-      path: "/user/:userId/edit",
+      path: "/user/:username/edit",
       name: "user-profile-edit",
       component: () => import("@/views/UserProfileEditView.vue"),
       meta: { requiresAuth: true },
     },
     {
       // 修改本人密码：需登录（是否本人由页面二次校验）
-      path: "/user/:userId/password",
+      path: "/user/:username/password",
       name: "user-password",
       component: () => import("@/views/UserPasswordView.vue"),
       meta: { requiresAuth: true },

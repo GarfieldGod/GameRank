@@ -339,13 +339,13 @@ function initCropFromSelected() {
 }
 
 // —— 库封面裁剪：仅在 libCover 模式启用；其余入口的“裁剪框”仅作预览 ——
-const CROP_RATIO = 7 / 16; // 高 / 宽：跟随预览卡上图（16:7，整卡16:10中上图占70%）
+const CROP_RATIO = 3 / 4; // 高 / 宽：跟随库封面卡片比例（4:3）
 const STAGE = { w: 480, h: 380 }; // 固定舞台尺寸：坐标计算与渲染共用，保证裁剪框精确居中
 const cropFrom = ref(""); // 本窗口源：grid | logo | hero（表单字段）| rec（推荐/上传的新图）
 const cropSrcUrl = ref(""); // 正在被裁剪的图 URL
 const cropImg = ref(null); // 已加载的裁剪源图（含 naturalWidth/Height）
 const cropSaving = ref(false);
-const cropBox = reactive({ x: 80, y: 50, w: 380, h: 166 }); // 裁剪窗（舞台坐标），比例固定 16:7
+const cropBox = reactive({ x: 80, y: 50, w: 380, h: 285 }); // 裁剪窗（舞台坐标），比例固定 4:3（380×285）
 const cropDrag = ref(null);
 
 function setCropSourceUrl(url) {
@@ -446,10 +446,12 @@ async function confirmPanel() {
     if (!img || cropSaving.value) return;
     const { sx, sy, sw, sh } = cropVisibleRect();
     const out = document.createElement("canvas");
-    out.width = 480; // 输出与裁剪框同比例 16:7
-    out.height = 210;
+    const ow = Math.max(1, Math.round(sw)); // 保留源分辨率（裁剪区原始像素），取整画布尺寸避免比例偏差
+    const oh = Math.max(1, Math.round(sh));
+    out.width = ow;
+    out.height = oh;
     const ctx = out.getContext("2d");
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, 480, 210);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ow, oh);
     cropSaving.value = true;
     try {
       const blob = await new Promise((res) => out.toBlob(res, "image/png"));
@@ -565,7 +567,7 @@ async function save() {
       // 编辑待审核申请：更新申请快照（ADD 的同时更新待审游戏）
       await updateProposal(editProposalId.value, payload);
       markGamesDirty();
-      router.replace({ path: `/user/${auth.user?.id}`, query: { tab: "submission" } });
+      router.replace({ path: `/user/${auth.user?.username}`, query: { tab: "submission" } });
     } else {
       // 新建游戏：管理员/站长直接通过，跳转详情页；普通用户进入待审，跳回游戏库并提示
       const created = await createGame(payload);
@@ -775,6 +777,7 @@ onMounted(() => {
               @pointerdown="onWindowDown"
             >
               <span class="crop-handle se" @pointerdown.stop="onResizeDown"></span>
+              <span class="crop-info-line"></span>
             </div>
           </div>
           <div v-else-if="panelMeta" class="panel-preview" :class="'ratio-' + panelMeta.assetKey">
@@ -880,7 +883,7 @@ onMounted(() => {
             isEdit
               ? `/game/${route.params.id}`
               : isEditProposal
-                ? { path: `/user/${auth.user?.id}`, query: { tab: 'submission' } }
+                ? { path: `/user/${auth.user?.username}`, query: { tab: 'submission' } }
                 : '/games'
           "
         >
@@ -1699,15 +1702,12 @@ textarea {
   text-decoration: none;
 }
 
-/* —— 库封面预览：复刻游戏库卡片布局（整卡 16:10，上 60% 封面、下 40% 名称/标签，无分数），水平居中 —— */
+/* —— 库封面预览：复刻游戏库卡片布局（整卡 4:3，封面铺满作背景，信息条覆盖于底部），水平居中 —— */
 .libcover-preview {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  width: 360px; /* 240px × 1.5 */
-  aspect-ratio: 16 / 10; /* 与游戏库卡片同比例 16:10 */
+  width: 360px; /* 4:3 下保持和前版 16:10 相近的宽度 */
+  aspect-ratio: 4 / 3; /* 与游戏库卡片同比例 4:3 */
   margin: 0 auto; /* 水平居中 */
-  padding: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
@@ -1718,8 +1718,8 @@ textarea {
   line-height: 1.5;
 }
 .libcover-cover {
-  flex: 7 1 0; /* 上 70% 封面 */
-  min-height: 0;
+  position: absolute; /* 铺满整卡作背景，信息条覆盖其上 */
+  inset: 0;
   overflow: hidden;
   line-height: 0;
 }
@@ -1729,24 +1729,31 @@ textarea {
   object-fit: cover;
   display: block;
   background: var(--surface-2);
-  transition: opacity 0.2s;
+  transition: transform 0.3s ease;
 }
 .libcover-preview:hover .libcover-cover img {
-  opacity: 0.82;
+  transform: scale(1.06); /* 与游戏库卡片悬停放大一致 */
 }
 .libcover-body {
-  flex: 3 1 0; /* 下 30% 信息区 */
-  min-height: 0;
+  position: absolute; /* 覆盖在封面底部 */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
-  overflow: hidden;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface); /* 默认不透明，保证信息可读（同游戏库卡片默认态） */
+  transition: background 0.3s ease;
+}
+.libcover-preview:hover .libcover-body {
+  background: color-mix(in srgb, var(--surface) 50%, transparent); /* 悬停信息条半透明，露出放大的封面 */
 }
 .libcover-gname {
   display: block;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--text-1);
   overflow: hidden;
@@ -1771,7 +1778,7 @@ textarea {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   padding: 6px 10px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
@@ -1958,5 +1965,17 @@ textarea {
   border: 2px solid #fff;
   border-radius: 50%;
   cursor: nwse-resize;
+}
+
+/* 信息覆盖顶端虚线：库封面裁出后在游戏库卡片展示时，底部约 43% 会叠加游戏名/标签等
+   信息条，此虚线标示信息条顶端位置，便于裁剪时避免把重要画面放进信息被遮挡区域 */
+.crop-info-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 72%; /* 与库封面卡片信息条顶部对齐（信息条约占卡片高 43%） */
+  border-top: 1px dashed rgba(255, 255, 255, 0.85);
+  pointer-events: none; /* 不拦截裁剪框的拖拽/缩放 */
+  z-index: 1;
 }
 </style>

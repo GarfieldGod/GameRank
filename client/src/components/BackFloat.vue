@@ -32,7 +32,7 @@ const HUB = new Set(["home", "game-list", "review-list"]);
 const showBack = computed(() => {
   if (!routeReady.value) return false;
   if (route.name === "user-profile") {
-    const isOwn = auth.isLoggedIn && auth.user?.id != null && Number(route.params.userId) === auth.user.id;
+    const isOwn = auth.isLoggedIn && auth.user?.username != null && route.params.username === auth.user.username;
     return !isOwn;
   }
   return !HUB.has(route.name);

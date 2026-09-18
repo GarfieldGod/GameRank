@@ -60,8 +60,8 @@ const gameName = computed(() => gameDisplayName(props.review, lang.isEn));
 const gameId = computed(() => props.review?.game?.id ?? null);
 // 作者主页链接
 const authorProfileUrl = computed(() => {
-  const id = author.value?.id;
-  return id ? `/user/${id}` : "";
+  const username = author.value?.username;
+  return username ? `/user/${username}` : "";
 });
 // 该作者评测排名：n=名次（含文案前缀）
 const rankText = computed(() => {
