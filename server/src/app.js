@@ -10,6 +10,7 @@ import uploadRoutes from "./routes/uploadRoutes.js";
 import gameRoutes from "./routes/gameRoutes.js";
 import proposalRoutes from "./routes/proposalRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import visitRoutes from "./routes/visitRoutes.js";
 
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -50,6 +51,7 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/games", gameRoutes);
 app.use("/api/proposals", proposalRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/visits", visitRoutes);
 
 // 统一 404
 app.use((_req, res) => {

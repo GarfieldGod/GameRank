@@ -5,6 +5,7 @@ import BackFloat from "@/components/BackFloat.vue";
 import BackTopFloat from "@/components/BackTopFloat.vue";
 import NavBar from "@/components/NavBar.vue";
 import { heartbeat } from "@/api/user";
+import { reportVisit } from "@/api/visit";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 
@@ -48,6 +49,8 @@ function onFocus() {
 onMounted(() => {
   // 刷新页面后 store 已恢复登录态，watch 不会触发，需主动启动心跳
   if (auth.isLoggedIn) startHeartbeat();
+  // 访客统计：每次整页加载上报一次（同一 IP 每天仅在后端记一条）
+  reportVisit();
   window.addEventListener("focus", onFocus);
 });
 onBeforeUnmount(() => {

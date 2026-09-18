@@ -120,6 +120,20 @@ model GameTombstone {
   @@map("GameTombstone")
 }
 
+// 访客记录表：前台页面加载时上报一次，用于管理页底部的访客统计。
+// 为保护隐私，不存明文 IP，仅存 IP 的 sha256 哈希；同一 (IP哈希, 自然日) 只记一条，
+// 所以"历史累计唯一访客"= COUNT(DISTINCT ipHash)，"某日唯一访客"= 该 day 的行数。
+model VisitLog {
+  id        Int      @id @default(autoincrement()) // 主键
+  ipHash    String   @db.VarChar(64) // 访客 IP 的哈希（隐私化存储）
+  day       String   @db.VarChar(10) // 服务器本地自然日，形如 2026-09-19（不沿用时间字段，规避时区歧义）
+  createdAt DateTime @default(now())
+
+  @@unique([ipHash, day]) // 每个 IP 每天仅一条，天然去重且同日刷新不重复写
+  @@index([day])         // 近 7 天趋势聚合走 day 前缀
+  @@map("VisitLog")
+}
+
 // 游戏申请（新增 / 编辑）表：由普通用户提交，站长/管理员审批
 model GameProposal {
   id           Int      @id @default(autoincrement()) // 主键

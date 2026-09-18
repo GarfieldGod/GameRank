@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { fetchUsers, setUserRole } from "@/api/user";
 import { fetchPendingProposals, approveProposal, rejectProposal } from "@/api/proposal";
-import { fetchDeleted, restoreItem, purgeItem, deleteUser } from "@/api/admin";
+import { fetchDeleted, restoreItem, purgeItem, deleteUser, fetchVisitStats } from "@/api/admin";
 import { displayName, useAuthStore } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { extractError } from "@/api/request";
@@ -288,10 +288,35 @@ const editPage = usePaged(pendingEdit, 10);
 const delGamePage = usePaged(deletedGames, 10);
 const delReviewPage = usePaged(deletedReviews, 10);
 
+// 访客统计：历史累计唯一访客 + 近 7 天每日唯一访客
+const visitStats = ref(null);
+const visitError = ref("");
+const maxDailyCount = computed(() =>
+  Math.max(1, ...(visitStats.value?.days || []).map((d) => d.count))
+);
+async function loadVisits() {
+  try {
+    visitStats.value = await fetchVisitStats();
+  } catch (err) {
+    visitError.value = extractError(err, lang.t("admin.failed"));
+  }
+}
+// 7 天柱状图列标签：今天显示"今天"，其余显示日期；日期串 "YYYY-MM-DD" → "M/D"
+function dayLabel(day) {
+  const d = new Date(`${day}T00:00:00`);
+  return isNaN(d) ? day : `${d.getMonth() + 1}/${d.getDate()}`;
+}
+function isToday(day) {
+  const d = new Date();
+  const cur = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return day === cur;
+}
+
 onMounted(() => {
   loadUsers();
   loadProposals();
   loadDeleted();
+  loadVisits();
   startOnlinePoll();
 });
 onBeforeUnmount(stopOnlinePoll);
@@ -532,6 +557,37 @@ onBeforeUnmount(stopOnlinePoll);
           <button :disabled="userPage >= userPageCount" @click="goUserPage(userPage + 1)">{{ lang.t("common.next") }}</button>
         </div>
       </div>
+    </section>
+
+    <!-- 访客统计：历史累计唯一访客 + 近 7 天每日唯一访客趋势 -->
+    <section class="user-card">
+      <h2>{{ lang.t("admin.visitors") }}</h2>
+      <p v-if="visitError" class="result-msg">{{ visitError }}</p>
+      <template v-else-if="visitStats">
+        <div class="visitor-total">
+          <span class="visitor-total-num">{{ visitStats.total }}</span>
+          <span class="visitor-total-label">{{ lang.t("admin.visitorTotal") }}</span>
+        </div>
+        <div class="visitor-trend">
+          <p class="visitor-trend-title">{{ lang.t("admin.visitorTrend") }}</p>
+          <div class="visitor-bars">
+            <div
+              v-for="d in visitStats.days"
+              :key="d.day"
+              class="visitor-bar-col"
+              :class="{ today: isToday(d.day) }"
+            >
+              <span class="visitor-bar-count">{{ d.count }}</span>
+              <div
+                class="visitor-bar"
+                :style="{ height: Math.max(3, (d.count / maxDailyCount) * 96) + 'px' }"
+                :title="`${d.day} : ${d.count}`"
+              ></div>
+              <span class="visitor-bar-label">{{ dayLabel(d.day) }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
     </section>
   </div>
 </template>
@@ -883,5 +939,71 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
+}
+
+/* —— 访客统计 —— */
+.visitor-total {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.visitor-total-num {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--primary);
+  line-height: 1;
+}
+.visitor-total-label {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.visitor-trend-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.visitor-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-height: 140px;
+  padding: 4px;
+}
+.visitor-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+.visitor-bar-count {
+  font-size: 12px;
+  color: var(--text-2);
+  height: 14px;
+  line-height: 14px;
+}
+.visitor-bar {
+  width: 100%;
+  max-width: 34px;
+  min-height: 3px;
+  border-radius: 5px 5px 0 0;
+  background: var(--primary);
+  transition: background-color 0.2s ease;
+}
+.visitor-bar-col.today .visitor-bar {
+  background: var(--primary-hover);
+}
+.visitor-bar-col.today .visitor-bar-count {
+  color: var(--primary);
+  font-weight: 600;
+}
+.visitor-bar-label {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
 }
 </style>

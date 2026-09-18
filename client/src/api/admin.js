@@ -60,3 +60,8 @@ export async function importReviews(file) {
   const r = await request.post("/admin/reviews/import", { data });
   return r.data;
 }
+
+// 访客统计（站长/管理员）：历史累计唯一访客 + 近 7 天每日唯一访客
+export function fetchVisitStats() {
+  return request.get("/admin/visits").then((r) => r.data);
+}

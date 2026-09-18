@@ -15,6 +15,34 @@ function parseTags(t) {
   }
 }
 
+// 访客统计（站长/管理员）：历史累计唯一访客数 + 近 7 天每日唯一访客数。
+// 存储仅为 IP 哈希，统计口径 = 全部计入（游客/普通用户/管理员均可成为访客）。
+// 历史累计唯一访客 = 不同 ipHash 的个数（同一 IP 跨天只算一次）；
+// 某日唯一访客 = 该 day 下的行数（(IP哈希, 日) 已唯一）。
+router.get("/visits", jwtAuth, adminOnly, async (_req, res) => {
+  const pad = (n) => String(n).padStart(2, "0");
+  const localDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  // 近 7 天（含今日）的日期串
+  const days = [];
+  const now = new Date();
+  for (let i = 6; i >= 0; i--) {
+    days.push(localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)));
+  }
+  const [distinctHashes, dailyRows] = await Promise.all([
+    prisma.visitLog.groupBy({ by: ["ipHash"], _count: { _all: true } }),
+    prisma.visitLog.groupBy({
+      by: ["day"],
+      where: { day: { in: days } },
+      _count: { _all: true },
+    }),
+  ]);
+  const byDay = new Map(dailyRows.map((r) => [r.day, r._count._all]));
+  res.json({
+    total: distinctHashes.length, // 历史累计唯一访客
+    days: days.map((day) => ({ day, count: byDay.get(day) || 0 })),
+  });
+});
+
 // 管理页：软删除（不可见）列表：GET /api/admin/deleted（站长与管理员可查看）
 // 站长可在此恢复或真正删除；管理员仅能查看（恢复/删除接口仍仅站长）
 router.get("/deleted", jwtAuth, adminOnly, async (_req, res) => {
