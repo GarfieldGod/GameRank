@@ -1142,4 +1142,94 @@ section h2 {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ===== 移动端（窄屏 ≤768）：hero 单列堆叠 + 流式字号 + 缩小分数框 =====
+   桌面端是「左 240px 封面 + 右信息列」，信息列靠 padding-right:210px 给右上角
+   176px 分数框让位。窄屏下这套比例会被 240+210 挤爆，故：
+   - hero 本就 flex-wrap，这里让封面与信息各占整行 → 上下堆叠；
+   - 封面居中、限宽，避免竖图在窄屏过高；
+   - 分数框缩小并仍锚定信息列右上角，信息列相应减小 padding-right；
+   - 标题用 clamp() 流式缩放，不再固定 44px。 */
+@media (max-width: 768px) {
+  .hero {
+    padding: 14px;
+    gap: 16px;
+  }
+  .cover {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto;
+    align-self: auto;
+  }
+  .info {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+  /* 移动端：游戏名与分数垂直排列（名称在上、分数紧随其下），通过 flex order 重排 */
+  .info-title {
+    order: 1;
+    padding-right: 0; /* 分数不再绝对定位右置，标题占满整行 */
+    min-height: 0;
+    align-items: center;
+    text-align: center; /* 游戏名与英文名居中 */
+  }
+  .info-title h1 {
+    font-size: clamp(26px, 8vw, 40px);
+  }
+  .title-alt {
+    font-size: 16px;
+  }
+  /* 分数改为独立色条（static 进入文档流），居中、自适应宽度，避免通栏过宽 */
+  .score-pill {
+    order: 2;
+    position: static;
+    align-self: center;
+    width: auto;
+    min-width: 120px;
+    padding: 0 22px;
+    height: 56px;
+    flex-direction: row;
+    gap: 8px;
+    margin: 4px 0 0;
+    border-radius: 10px;
+  }
+  .score-pill .sc-num {
+    font-size: 32px;
+  }
+  .score-pill .sc-na {
+    font-size: 16px;
+  }
+  .counted-reviews {
+    order: 3;
+    position: static;
+    width: 100%;
+    text-align: center; /* 计入评测数也居中 */
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+  /* 移动端不显示简介、制作公司、发行公司 */
+  .intro-title,
+  .desc,
+  .facts {
+    display: none;
+  }
+  /* 剩余操作按钮(编辑/删除/申请编辑)居中对齐；footer 仅剩底部的操作组 */
+  .info-footer {
+    order: 4;
+    justify-content: center;
+  }
+  .fact-value {
+    max-width: 20ch;
+  }
+  .badge-cover {
+    left: 14px;
+    top: 14px;
+  }
+  .badge-hero {
+    top: 12px;
+    right: 12px;
+  }
+}
 </style>

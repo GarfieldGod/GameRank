@@ -650,7 +650,7 @@ onMounted(() => {
         <SmartImg class="hero-bg-img" :src="cover(form.heroImageUrl)" alt="" @load="onHeroLoad" />
         <span class="bg-hint">{{ lang.t("game.new.selectBackground") }}</span>
       </div>
-      <!-- 无背景图时的占位背景条：作为底层被卡片压住，左右两侧各一个“选择背景图”提示 -->
+      <!-- 无背景图时的占位背景条：作为底层被卡片压住，左右各一个“选择背景图”提示 -->
       <div v-else class="hero-bg hero-bg--empty clickable" @click="openPanel('background')">
         <span class="bg-hint bg-hint--side bg-hint--left">{{ lang.t("game.new.selectBackground") }}</span>
         <span class="bg-hint bg-hint--side bg-hint--right">{{ lang.t("game.new.selectBackground") }}</span>
@@ -674,6 +674,11 @@ onMounted(() => {
           </div>
 
         <div class="info">
+          <!-- 移动端“选择背景图”按钮：位于封面框下方、游戏英文名上方 -->
+          <button type="button" class="bg-pick-btn" @click="openPanel('background')">
+            {{ lang.t("game.new.selectBackground") }}
+          </button>
+
           <div class="info-title">
             <label class="name-field">
               <span class="field-label">{{ lang.t("game.new.requiredName") }}<span class="req-star">*</span>)</span>
@@ -875,9 +880,6 @@ onMounted(() => {
       </label>
 
       <div class="actions">
-        <button class="primary" type="submit" :disabled="saving">
-          {{ saving ? lang.t("common.saving") : (applyEdit ? lang.t("game.detail.submitProposal") : lang.t("common.save")) }}
-        </button>
         <RouterLink
           class="cancel"
           :to="
@@ -890,6 +892,9 @@ onMounted(() => {
         >
           {{ lang.t("common.cancel") }}
         </RouterLink>
+        <button class="primary" type="submit" :disabled="saving">
+          {{ saving ? lang.t("common.saving") : (applyEdit ? lang.t("game.detail.submitProposal") : lang.t("common.save")) }}
+        </button>
       </div>
 
       <input ref="coverInput" type="file" accept="image/*" hidden @change="onPickCover" />
@@ -1978,5 +1983,42 @@ textarea {
   border-top: 1px dashed rgba(255, 255, 255, 0.85);
   pointer-events: none; /* 不拦截裁剪框的拖拽/缩放 */
   z-index: 1;
+}
+
+/* —— 移动端：编辑页专用适配 —— */
+/* 封面框下方“选择背景图”按钮仅限移动端显示，PC 隐藏 */
+.bg-pick-btn {
+  display: none;
+}
+@media (max-width: 768px) {
+  /* 详情封面（封面域）水平居中：卡片换行堆叠后默认左对齐 */
+  .hero .cover-box {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* 库封面预览卡片不超出内容区：限宽并等比缩放 */
+  .libcover-preview {
+    width: 100%;
+    max-width: 360px;
+  }
+
+  /* 隐藏 PC 左右两侧的“选择背景图”入口 */
+  .bg-hint--side {
+    display: none;
+  }
+
+  /* 封面框下方、游戏英文名上方的居中“选择背景图”按钮 */
+  .bg-pick-btn {
+    display: block;
+    margin: 0 auto;
+    padding: 9px 20px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--primary);
+    font-size: 14px;
+    cursor: pointer;
+  }
 }
 </style>

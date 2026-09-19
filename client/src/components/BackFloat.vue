@@ -10,6 +10,12 @@ const router = useRouter();
 const auth = useAuthStore();
 const lang = useLangStore();
 
+// 移动端完全隐藏返回按钮：监听宽度变化使反应式生效
+const isMobile = ref(window.innerWidth <= 768);
+function onResize() {
+  isMobile.value = window.innerWidth <= 768;
+}
+
 // 路由就绪后箭头才渲染：避免刷新时主页/首帧短暂闪现（route.name 尚未解析）
 const routeReady = ref(false);
 
@@ -30,6 +36,7 @@ const HUB = new Set(["home", "game-list", "review-list"]);
 // 是否显示返回箭头：非顶层页显示；自己的主页隐藏、别人的主页显示。
 // 编辑页不在返回时隐藏——返回箭头始终存在，仅点击返回时跳过编辑页。
 const showBack = computed(() => {
+  if (isMobile.value) return false; // 移动端不显示悬浮返回按钮
   if (!routeReady.value) return false;
   if (route.name === "user-profile") {
     const isOwn = auth.isLoggedIn && auth.user?.username != null && route.params.username === auth.user.username;
@@ -53,10 +60,12 @@ onMounted(() => {
       stack.value.push(to.fullPath);
     });
   });
+  window.addEventListener("resize", onResize);
 });
 
 onBeforeUnmount(() => {
   if (offNav) offNav();
+  window.removeEventListener("resize", onResize);
 });
 
 // 返回：跳过编辑页（含其新建入口 /new），计算需回退步数并跳转，

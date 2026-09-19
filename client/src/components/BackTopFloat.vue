@@ -1,20 +1,38 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
 import { useLangStore } from "@/stores/lang";
 
 const lang = useLangStore();
+const route = useRoute();
 
-const show = ref(false);
+// 移动端编辑页/新建页不显示回到顶部按钮
+const isMobile = ref(window.innerWidth <= 768);
+function onResize() {
+  isMobile.value = window.innerWidth <= 768;
+}
+
+// 编辑页入口：路径以 /edit 结尾，或为新建页 /new
+function isEditPage() {
+  const p = route.path;
+  return /\/edit($|\?)/.test(p) || /\/new($|\?)/.test(p);
+}
+
+const scrolled = ref(false);
+const show = computed(() => scrolled.value && !(isMobile.value && isEditPage()));
+
 function onScroll() {
   // 仅当滑动距离超过一个页面高度时显示
-  show.value = window.scrollY > window.innerHeight;
+  scrolled.value = window.scrollY > window.innerHeight;
 }
 onMounted(() => {
   window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onResize);
   onScroll();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("scroll", onScroll);
+  window.removeEventListener("resize", onResize);
 });
 
 function toTop() {

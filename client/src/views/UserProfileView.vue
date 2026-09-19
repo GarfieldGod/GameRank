@@ -353,6 +353,7 @@ onMounted(routeChange);
             {{ profile.role === "ADMIN" ? lang.t("user.profile.revokeAdmin") : lang.t("user.profile.setAdmin") }}
           </button>
         </div>
+        <p class="bio-m">{{ profile.bio || lang.t("user.profile.bioEmpty") }}</p>
       </div>
 
       <div class="tabs" v-if="isOwn()">
@@ -466,6 +467,7 @@ onMounted(routeChange);
               <span v-if="briefOf(r)" class="rank-brief">{{ briefOf(r) }}</span>
             </div>
             <span class="rank-score">{{ formatRating(r) }}</span>
+            <span v-if="briefOf(r)" class="rank-brief-m">{{ briefOf(r) }}</span>
           </RouterLink>
         </div>
         <div v-else class="draft-list">
@@ -575,6 +577,10 @@ onMounted(routeChange);
   color: var(--text-1);
   margin: 0;
 }
+/* 移动端专属的整卡底部简介：桌面端隐藏（由信息列内的 .bio 承担） */
+.bio-m {
+  display: none;
+}
 
 /* 设置卡片：编辑资料 / 修改密码 / 注销账号 合并在同一卡片，按钮垂直排列并居中 */
 .settings-card {
@@ -599,6 +605,7 @@ onMounted(routeChange);
   text-decoration: none;
   font-size: 15px;
   cursor: pointer;
+  white-space: nowrap; /* 按钮文字水平单行显示，不逐字换行 */
 }
 .settings-btn:hover {
   border-color: var(--primary);
@@ -856,7 +863,8 @@ onMounted(routeChange);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rank-brief {
+.rank-brief,
+.rank-brief-m {
   color: var(--text-2);
   font-size: 13px;
   line-height: 1.5;
@@ -864,6 +872,10 @@ onMounted(routeChange);
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+/* 移动端专属的整卡底部简述：桌面端隐藏（由信息列内的 .rank-brief 承担） */
+.rank-brief-m {
+  display: none;
 }
 .rank-score {
   font-size: 24px;
@@ -1020,6 +1032,117 @@ onMounted(routeChange);
 .pager button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* —— 移动端：排行榜/事务布局 —— */
+@media (max-width: 768px) {
+  /* 个人主页头部：头像与信息列顶对齐、缩小头像；信息列内顺序 用户名→加入时间→邮箱→简介(底部+分界线) */
+  .profile-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "avatar info actions"
+      "avatar info actions"
+      "bio    bio  bio";
+    align-items: start;
+    gap: 12px 14px;
+  }
+  .profile-head .avatar {
+    grid-area: avatar;
+    width: 56px; /* 缩小头像，顶部与用户名对齐 */
+    height: 56px;
+  }
+  .profile-head .info {
+    grid-area: info;
+  }
+  .profile-head .profile-actions {
+    grid-area: actions;
+  }
+  .info .name-line { order: 0; }
+  .info .joined { order: 1; }
+  .info .account { order: 2; }
+  /* 信息列内的简介隐藏，改由 .bio-m 在卡片底部整行显示（上方加分界线） */
+  .profile-head .bio {
+    display: none;
+  }
+  .profile-head > .bio-m {
+    grid-area: bio;
+    display: block;
+    color: var(--text-1);
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* 移动端：按钮占满卡片等宽（避免英文文案长短不一导致宽度不等） */
+  .settings-btn {
+    width: 100%;
+  }
+
+  /* 英文标签较长时允许换行，避免溢出内容区 */
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  /* 排行榜：排行缩小，图片与排行等高 */
+  .rank-no {
+    width: 56px;
+    height: 56px;
+    font-size: 20px;
+  }
+  .rank-cover {
+    width: 75px;
+    height: 56px; /* 与排行数字等高 */
+  }
+  .rank-score {
+    font-size: 20px;
+  }
+  /* 游戏名在上、分数在下垂直排列；排号与图片跨两行、顶/底对齐；简述独占卡片最底行 */
+  .ranking-item {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    align-items: start;
+    gap: 8px 12px;
+    grid-template-areas:
+      "no   cover  info"
+      "no   cover  score"
+      "brief brief brief";
+  }
+  .rank-no { grid-area: no; }
+  .rank-cover { grid-area: cover; }
+  .rank-info { grid-area: info; flex: none; min-width: 0; }
+  .rank-score { grid-area: score; align-self: end; transform: translateY(-2px); /* 分数略微上移 2px */ }
+  .rank-game {
+    font-size: 17px;
+    padding-bottom: 4px;
+  }
+  /* 信息列内的简述隐藏，改由 .rank-brief-m 在卡片底部整行显示 */
+  .rank-brief {
+    display: none;
+  }
+  .rank-brief-m {
+    display: -webkit-box;
+    grid-area: brief;
+    min-height: 39px; /* 简述固定占 2 行高度（13px × 1.5 × 2） */
+  }
+
+  /* 事务卡片：操作按钮独立成行并靠右 */
+  .proposal-item {
+    flex-wrap: wrap;
+  }
+  .prop-actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+    padding-top: 6px;
+  }
+
+  /* 拒绝原因：独立成行，超长换行（位于操作按钮行上方） */
+  .prop-reject {
+    display: block;
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.5;
+  }
 }
 
 @media (max-width: 520px) {

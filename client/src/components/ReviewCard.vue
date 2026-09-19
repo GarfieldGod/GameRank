@@ -872,4 +872,90 @@ async function react(kind) {
   margin-right: 10px;
   flex-shrink: 0;
 }
+
+/* ===== 移动端（窄屏 ≤768）：面板型卡片（评测库页/游戏详情页）纵向堆叠 =====
+   桌面端面板型是「左 240px 游戏信息列 + 右正文列」。窄屏下 240px 会吃掉大半
+   宽度，右栏只剩 ~100px 无法阅读，故收成上下堆叠：游戏信息在上、正文在下。 */
+@media (max-width: 768px) {
+  .card {
+    padding: 14px;
+  }
+  .card.panel {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .card.panel .left {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding-right: 0;
+    padding-bottom: 14px;
+  }
+  /* 封面在窄屏限高，避免 140px 之上还叠加其余信息过高 */
+  .card.panel .lcover {
+    height: 160px;
+  }
+  /* 游戏名 + 分数在窄屏保持一行但允许换行，分数不再被挤出 */
+  .card.panel .gline {
+    flex-wrap: wrap;
+  }
+  .card.panel .lname {
+    font-size: 18px;
+  }
+  /* 简述在窄屏允许换行多行，而非单行截断 */
+  .card.panel .brief,
+  .card.detail .brief {
+    white-space: normal;
+    max-width: 100%;
+    text-align: left;
+    flex: 1 1 100%;
+  }
+  .card.detail {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+  .card.detail .right {
+    align-self: stretch;
+    width: 100%;
+    min-width: 0;
+  }
+  .card.detail .dbanner {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  /* 移动端：不显示评测卡的分项评分 */
+  .card.detail .aspects {
+    display: none;
+  }
+  /* 移动端：头像、排名、分数在同一行，简述独占下一行。
+   用 order 保证换行时的放置顺序：简述 flex-basis:100% 必然换行，
+   若分数排在简述之后会被挤到更下面，故将分数 order 置于简述之前 */
+  .card.detail .dbanner .lauthor {
+    order: 0;
+  }
+  .card.detail .dbanner .rank {
+    order: 1;
+  }
+  .card.detail .dscore {
+    order: 2;
+    margin-left: auto; /* 推到用户信息行最右端，贴合右上角 */
+    margin-right: 4px;
+    flex-shrink: 0;
+  }
+  .card.detail .dbanner .brief {
+    order: 3;
+    flex: 1 1 100%; /* 简述独占下一行 */
+  }
+  /* 正文折叠高度在窄屏放宽，减少“查看更多”触发频率 */
+  .body.collapsed {
+    min-height: 220px;
+    max-height: 220px;
+  }
+  /* 底部操作栏：窄屏允许换行，避免时间+点赞被挤爆 */
+  .meta {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+}
 </style>

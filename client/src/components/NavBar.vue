@@ -1,6 +1,6 @@
 <script setup>
-import { computed } from "vue";
-import { useRouter } from "vue-router";
+import { computed, ref, watch } from "vue";
+import { useRouter, useRoute } from "vue-router";
 import { useAuthStore, displayName } from "@/stores/auth";
 import { useLangStore } from "@/stores/lang";
 import { useThemeStore } from "@/stores/theme";
@@ -12,8 +12,38 @@ const theme = useThemeStore();
 
 const userDisplay = computed(() => displayName(auth.user));
 
+// 移动端共用一块展开面板：汉堡打开「页面菜单」，头像打开「用户菜单」，再点同一按钮收起。
+const mobilePanel = ref(null); // null | 'menu' | 'user'
+const route = useRoute();
+// 与全局断点一致：≤768 视为移动端
+function isMobile() {
+  return window.innerWidth <= 768;
+}
+watch(
+  () => route.fullPath,
+  () => {
+    mobilePanel.value = null;
+  }
+);
+// 汉堡：开/关「页面菜单」
+function toggleMenu() {
+  mobilePanel.value = mobilePanel.value === "menu" ? null : "menu";
+}
+// 头像：移动端仅作面板开/关（不跳转个人主页）；桌面端跳转个人主页
+function onUserToggle() {
+  if (isMobile()) {
+    mobilePanel.value = mobilePanel.value === "user" ? null : "user";
+  } else {
+    router.push(`/user/${auth.user?.username}`);
+  }
+}
+function closePanel() {
+  mobilePanel.value = null;
+}
+
 function onLogout() {
   auth.logout();
+  mobilePanel.value = null;
   router.push({ name: "home" });
 }
 
@@ -32,7 +62,11 @@ function avatarUrl(url) {
 <template>
   <nav class="navbar">
     <div class="side left">
+      <!-- 移动端汉堡按钮：仅窄屏显示，位于站点标题右侧 -->
       <RouterLink class="brand" to="/">GameRank</RouterLink>
+      <button class="menu-btn" :class="{ active: mobilePanel === 'menu' }" @click="toggleMenu" aria-label="菜单" :aria-expanded="mobilePanel === 'menu'">
+        <span></span><span></span><span></span>
+      </button>
     </div>
 
     <div class="nav-center">
@@ -46,10 +80,10 @@ function avatarUrl(url) {
         <RouterLink v-if="auth.isAdmin" class="btn-manage" to="/admin">{{ lang.t("nav.manage") }}</RouterLink>
 
         <div class="user-menu">
-          <RouterLink class="user-trigger" :to="`/user/${auth.user?.username}`">
+          <button type="button" class="user-trigger" :class="{ active: mobilePanel === 'user' }" @click="onUserToggle" :aria-expanded="mobilePanel === 'user'">
             <SmartImg class="avatar" :src="avatarUrl(auth.user?.avatar)" :alt="userDisplay" />
             <span class="user-name">{{ userDisplay }}</span>
-          </RouterLink>
+          </button>
           <div class="dropdown">
             <div class="dropdown-inner">
               <RouterLink class="dropdown-item" :to="`/user/${auth.user?.username}`">{{ lang.t("nav.myProfile") }}</RouterLink>
@@ -75,6 +109,21 @@ function avatarUrl(url) {
         </button>
         <button class="lang-btn" @click="lang.toggle()">{{ lang.isEn ? "中文" : "EN" }}</button>
       </template>
+    </div>
+
+    <!-- 移动端共用一块展开面板：汉堡→页面菜单，头像→用户菜单 -->
+    <div v-if="mobilePanel" class="mobile-menu">
+      <div v-if="mobilePanel === 'menu'" class="mm-block">
+        <RouterLink class="mm-item" to="/">{{ lang.t("nav.home") }}</RouterLink>
+        <RouterLink class="mm-item" to="/games">{{ lang.t("nav.games") }}</RouterLink>
+        <RouterLink class="mm-item" to="/reviews">{{ lang.t("nav.reviews") }}</RouterLink>
+      </div>
+      <div v-else class="mm-block">
+        <RouterLink v-if="auth.isAdmin" class="mm-item" to="/admin" @click="closePanel">{{ lang.t("nav.manage") }}</RouterLink>
+        <RouterLink class="mm-item" :to="`/user/${auth.user?.username}`" @click="closePanel">{{ lang.t("nav.myProfile") }}</RouterLink>
+        <RouterLink class="mm-item" to="/reviews/new" @click="closePanel">{{ lang.t("nav.writeReview") }}</RouterLink>
+        <button class="mm-item logout" @click="onLogout">{{ lang.t("nav.logout") }}</button>
+      </div>
     </div>
   </nav>
 </template>
@@ -156,9 +205,12 @@ function avatarUrl(url) {
   display: flex;
   align-items: center;
   gap: 8px;
-  text-decoration: none;
   padding: 6px 4px;
+  border: none;
   border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .user-trigger:hover {
@@ -293,5 +345,152 @@ function avatarUrl(url) {
 .theme-btn:hover {
   background: var(--hover);
   color: var(--primary);
+}
+
+/* ===== 移动端：汉堡按钮 + 下拉菜单 ===== */
+/* 汉堡按钮：桌面端隐藏，窄屏显示为三横线（44×44 触屏目标） */
+.menu-btn {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 44px;
+  height: 44px;
+  margin: 0 0 0 4px;
+  padding: 0 11px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.menu-btn span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--text-1);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+/* 展开时三横线变叉 */
+.menu-btn.active span:nth-child(1) {
+  transform: translateY(6px) rotate(45deg);
+}
+.menu-btn.active span:nth-child(2) {
+  opacity: 0;
+}
+.menu-btn.active span:nth-child(3) {
+  transform: translateY(-6px) rotate(-45deg);
+}
+
+/* 下拉菜单：默认隐藏，窄屏且打开时以整行面板出现在导航条下方 */
+.mobile-menu {
+  display: none;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0 12px;
+  border-top: 1px solid var(--border);
+}
+.mm-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mm-item {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 15px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.mm-item:hover {
+  background: var(--hover);
+  color: var(--primary);
+}
+
+.mm-item.logout {
+  color: var(--danger);
+}
+
+.mm-item.logout:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* 窄屏断点：导航收成「汉堡 + Logo · 主题/语言 + 头像/登录」 */
+@media (max-width: 768px) {
+  .navbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 56px;
+    padding: 0 16px;
+  }
+  .nav-center {
+    display: none;
+  }
+  .side.right {
+    gap: 10px;
+  }
+  /* 站长管理与注册按钮在移动端隐藏 */
+  .btn-manage,
+  .btn-primary {
+    display: none;
+  }
+  /* 右侧顺序：主题 → 语言 → 登录(未登录) / 头像菜单(已登录) */
+  .theme-btn {
+    order: 1;
+  }
+  .lang-btn {
+    order: 2;
+  }
+  .btn-link,
+  .user-menu {
+    order: 3;
+  }
+  /* 登录入口在移动端呈按钮形态 */
+  .btn-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 16px;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .btn-link:hover {
+    background: var(--primary-soft);
+  }
+  .menu-btn {
+    display: flex;
+  }
+  .mobile-menu {
+    display: flex;
+  }
+  /* 移动端头像区：只显示头像（不含用户名），点按展开/收起共用面板；
+     不再使用桌面端的浮窗下拉，因此将其隐藏 */
+  .user-menu {
+    display: flex;
+  }
+  .user-menu .user-name {
+    display: none;
+  }
+  .user-trigger {
+    padding: 2px 0;
+  }
+  .user-menu .dropdown {
+    display: none !important;
+  }
+  /* 头像当作开关：面板展开时给出选中态 */
+  .user-trigger.active {
+    background: var(--hover);
+  }
 }
 </style>

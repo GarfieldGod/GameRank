@@ -259,7 +259,7 @@ watch(() => [route.params.id, route.query.preview], reloadForRoute, { immediate:
             <div class="ac-times">
               <span class="published">{{ lang.t("review.detail.published") }} {{ formatTime(review.publishedAt) }}</span>
               <span v-if="review.updatedAt !== review.publishedAt" class="updated">
-                · {{ lang.t("review.detail.updated") }} {{ formatTime(review.updatedAt) }}
+                {{ lang.t("review.detail.updated") }} {{ formatTime(review.updatedAt) }}
               </span>
             </div>
           </div>
@@ -543,6 +543,12 @@ a.game:hover {
   font-size: 13px;
   white-space: nowrap;
 }
+/* PC 端发布时间与更新时间之间的分隔点（移动端已移除，见下方媒体查询） */
+.ac-times .updated::before {
+  content: "·";
+  margin-right: 8px;
+  opacity: 0.6;
+}
 .ac-aspects {
   margin-top: 14px;
   padding-top: 14px;
@@ -728,6 +734,73 @@ a.game:hover {
 .btn.danger {
   background: var(--danger);
   color: #fff;
+}
+
+/* —— 移动端：评级居中、信息与操作按钮靠右收敛 —— */
+@media (max-width: 768px) {
+  /* 游戏名在上、分数水平居中（简述之前） */
+  .head-meta {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .game {
+    width: 100%;
+    text-align: center;
+    font-size: 24px;
+    line-height: 1.3;
+    white-space: normal; /* 长游戏名允许换行，不撑破容器 */
+    word-break: break-word;
+  }
+  .rating {
+    align-self: center; /* 分数水平居中显示 */
+    margin-left: 0;
+  }
+
+  /* 用户信息与 #排名 同一行，排名靠右 */
+  .ac-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  .ac-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .ac-rank {
+    margin-left: auto; /* 与用户信息同行并靠右 */
+    flex-shrink: 0;
+  }
+
+  /* 下方整行：发布时间/更新时间在上、编辑/删除按钮在下，均靠右 */
+  .ac-side {
+    flex-basis: 100%;
+    margin-left: 0;
+    width: auto;
+    height: auto;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .ac-times {
+    order: 1; /* 时间在上 */
+    flex-direction: column;
+    align-items: flex-end; /* 靠右 */
+    gap: 2px;
+    height: auto;
+    white-space: normal;
+    word-break: break-all; /* 长日期在内容区内折行，不溢出 */
+  }
+  .ac-times .updated::before {
+    content: none; /* 垂直排布时去掉更新时间前的分隔点 */
+    margin-right: 0;
+  }
+  .actions {
+    order: 2; /* 编辑/删除按钮在时间下方 */
+    flex-wrap: wrap;
+    height: auto;
+    justify-content: flex-end; /* 靠右 */
+  }
 }
 </style>
 

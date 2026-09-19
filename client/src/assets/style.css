@@ -39,6 +39,14 @@ html {
   --warn-text: #92400e;
   --score-bg: #fde68a;
   --score-text: #92400e;
+
+  /* ===== 响应式断点（全站统一，供各组件 @media 参考，不直接在此书写媒体查询）=====
+     sm=小屏手机(≤480) md=手机/小平板(≤768) lg=平板/小桌面(≤1024)
+     约定：mobile-first，各组件用 @media (max-width: Npx) 做“窄屏降级”，
+     阈值取自这三档，避免全站断点各自为政（此前散落 760/700/520 三种）。 */
+  --bp-sm: 480px;
+  --bp-md: 768px;
+  --bp-lg: 1024px;
 }
 
 [data-theme="dark"] {

@@ -17,6 +17,8 @@ const games = ref([]);
 const tagOptions = ref([]);
 const selectedTag = ref("");
 const keyword = ref("");
+// 移动端标签筛选默认收起，点击展开按钮展开
+const tagExpanded = ref(false);
 const loading = ref(true); // 首次加载
 const loadingMore = ref(false); // 流式加载中
 const page = ref(1);
@@ -114,6 +116,7 @@ async function loadTags() {
 }
 
 function selectTag(tag) {
+  tagExpanded.value = false; // 移动端点击标签后收起标签列表
   if (selectedTag.value === tag && !keyword.value) return;
   selectedTag.value = tag;
   keyword.value = ""; // 切换标签时清除搜索
@@ -177,24 +180,40 @@ onBeforeUnmount(() => {
 
     <div class="layout">
       <aside class="sidebar">
-        <h3 class="sidebar-title">{{ lang.t("games.filter") }}</h3>
-        <button
-          class="tag-item"
-          :class="{ active: selectedTag === '' }"
-          @click="selectTag('')"
-        >
-          {{ lang.t("games.all") }}
-        </button>
-        <button
-          v-for="t in tagOptions"
-          :key="t.tag"
-          class="tag-item"
-          :class="{ active: selectedTag === t.tag }"
-          @click="selectTag(t.tag)"
-        >
-          <span class="tag-name">{{ lang.tag(t.tag) }}</span>
-          <span class="count">{{ t.count }}</span>
-        </button>
+        <div class="sidebar-head">
+          <h3 class="sidebar-title">{{ lang.t("games.filter") }}</h3>
+          <button
+            type="button"
+            class="tag-toggle"
+            :class="{ open: tagExpanded }"
+            :aria-expanded="tagExpanded"
+            :aria-label="lang.t('games.filter')"
+            @click="tagExpanded = !tagExpanded"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+        <div class="tag-list" :class="{ open: tagExpanded }">
+          <button
+            class="tag-item"
+            :class="{ active: selectedTag === '' }"
+            @click="selectTag('')"
+          >
+            {{ lang.t("games.all") }}
+          </button>
+          <button
+            v-for="t in tagOptions"
+            :key="t.tag"
+            class="tag-item"
+            :class="{ active: selectedTag === t.tag }"
+            @click="selectTag(t.tag)"
+          >
+            <span class="tag-name">{{ lang.tag(t.tag) }}</span>
+            <span class="count">{{ t.count }}</span>
+          </button>
+        </div>
       </aside>
 
       <div class="main">
@@ -312,6 +331,41 @@ h1 {
   font-size: 14px;
   color: var(--text-2);
   font-weight: 600;
+}
+
+/* 窄屏下标题与展开按钮排一行；桌面端隐藏展开按钮、列表直接透明展开 */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.tag-toggle {
+  display: none; /* 仅移动端显示 */
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.tag-toggle:hover {
+  background: var(--hover);
+  color: var(--primary);
+}
+.tag-toggle svg {
+  transition: transform 0.2s ease;
+}
+.tag-toggle.open svg {
+  transform: rotate(180deg);
+}
+/* 桌面端：包裹层透明化，标签直接排布 */
+.tag-list {
+  display: contents;
 }
 
 .tag-item {
@@ -642,7 +696,7 @@ h1 {
   flex-shrink: 0;
 }
 
-/* 窄屏时筛选栏横向铺开 */
+/* 窄屏：筛选栏折叠成标题+展开按钮一行；卡片一行至少两张并整体缩小 */
 @media (max-width: 760px) {
   .layout {
     flex-direction: column;
@@ -652,17 +706,94 @@ h1 {
     width: 100%;
     position: static;
     max-height: none;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
+    flex-direction: column;
+    padding: 0; /* 去侧边留白，使右缘与主区(添加游戏按钮)对齐 */
   }
 
+  /* 头部：标题在左(略内缩)、展开按钮贴右缘，与添加游戏按钮右缘对齐 */
+  .sidebar-head {
+    padding: 12px 0 10px 8px; /* 左内缩，避免标题贴近面板边缘 */
+    border-bottom: 1px solid var(--border);
+  }
+  .tag-toggle {
+    display: inline-flex;
+  }
   .sidebar-title {
-    width: 100%;
+    margin: 0;
   }
 
+  /* 默认收起：仅展开时显示标签列表（一行两个、等高等比） */
+  .tag-list {
+    display: none;
+  }
+  .tag-list.open {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 10px 8px 4px; /* 左右内缩与标题对齐 */
+  }
   .tag-item {
     width: auto;
+    height: 40px; /* 等高 */
+    justify-content: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+  }
+  .tag-item:hover {
+    background: var(--hover);
+  }
+  /* 移动端不显示标签统计数字 */
+  .tag-item .count {
+    display: none;
+  }
+
+  /* 一行固定两张，空间不足自动压缩卡片 */
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  /* 缩小卡片内部全部内容，避免小卡中溢出/拥挤 */
+  .card {
+    aspect-ratio: 4 / 3;
+  }
+  .body {
+    padding: 6px 8px;
+    gap: 2px;
+  }
+  .gname {
+    font-size: 12px;
+    padding-right: 46px; /* 缩窄，为右上角分数留更小空间 */
+    gap: 4px;
+  }
+  .pending-badge {
+    font-size: 9px;
+    padding: 0 5px;
+  }
+  .rank-badge {
+    top: 4px;
+    left: 4px;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 6px;
+  }
+  .score {
+    right: 6px;
+    top: 8px;
+    bottom: 8px;
+    width: 40px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+  .tags {
+    width: calc(100% - 52px);
+    gap: 4px;
+    min-height: 18px;
+  }
+  .tag {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
   }
 }
 </style>

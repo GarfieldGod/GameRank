@@ -174,4 +174,28 @@ onActivated(async () => {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* —— 移动端：搜索框/搜索按钮/写评测按钮统一切换为等高的分段布局 —— */
+@media (max-width: 768px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .search {
+    width: 100%;
+  }
+  .search input,
+  .search button,
+  .create-btn {
+    height: 40px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .create-btn {
+    width: 100%;
+  }
+}
 </style>
