@@ -102,7 +102,7 @@ onMounted(async () => {
       <div class="edit-all">
         <div class="info-row">
           <div class="avatar-row">
-            <img class="avatar" :src="avatarUrl(form.avatar)" alt="avatar" />
+            <SmartImg class="avatar" :src="avatarUrl(form.avatar)" alt="avatar" />
             <button type="button" class="upload-btn" @click="avatarInput.click()">
               {{ lang.t("user.edit.avatar") }}
             </button>

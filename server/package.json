@@ -17,9 +17,12 @@
     "data:backup": "node scripts/data-cli.mjs backup",
     "data:diff": "node scripts/data-cli.mjs games import --dry-run",
     "sgdb:backfill": "node scripts/sgdb-backfill.mjs",
-    "sgdb:backfill:all": "node scripts/sgdb-backfill.mjs --all"
+    "sgdb:backfill:all": "node scripts/sgdb-backfill.mjs --all",
+    "r2:migrate": "node scripts/migrate-to-r2.mjs",
+    "r2:migrate:dry": "node scripts/migrate-to-r2.mjs --dry-run"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1136.0",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

@@ -5,6 +5,7 @@ import { Router } from "express";
 import multer from "multer";
 import { jwtAuth } from "../middleware/auth.js";
 import { uploadLimiter } from "../middleware/rateLimit.js";
+import { syncToR2 } from "../services/r2.js";
 
 const router = Router();
 
@@ -39,11 +40,14 @@ const upload = multer({
 
 // 上传图片：POST /api/upload（需登录）
 // 限流置于 multer 解析之前，避免未过限流的请求先落盘再被拒
+// 落盘本地（兜底）后尽力同步到 R2（CDN 主源）；R2 未配置或失败时静默降级，接口不受影响
 router.post("/", uploadLimiter, jwtAuth, upload.single("file"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "缺少文件" });
   }
-  res.status(201).json({ url: `/uploads/${req.file.filename}` });
+  const url = `/uploads/${req.file.filename}`;
+  syncToR2(req.file.path, url); // 不阻塞响应
+  res.status(201).json({ url });
 });
 
 export default router;

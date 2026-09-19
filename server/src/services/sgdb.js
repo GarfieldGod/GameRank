@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import SGDB from "steamgriddb";
 import sharp from "sharp";
+import { syncToR2 } from "./r2.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "uploads", "sgdb");
@@ -91,12 +92,18 @@ export async function downloadCover(imageUrl) {
       .toFile(target);
     if (fs.statSync(target).size >= buf.length) {
       fs.rmSync(target, { force: true });
-      return writeOriginal(imageUrl, buf, baseName);
+      return finalizeCover(writeOriginal(imageUrl, buf, baseName));
     }
-    return `/uploads/sgdb/${path.basename(target)}`;
+    return finalizeCover(`/uploads/sgdb/${path.basename(target)}`);
   } catch {
-    return writeOriginal(imageUrl, buf, baseName);
+    return finalizeCover(writeOriginal(imageUrl, buf, baseName));
   }
+}
+
+// 本地落盘后尽力同步到 R2（不阻塞、失败静默降级），返回站内相对路径
+function finalizeCover(publicUrl) {
+  syncToR2(path.join(PUBLIC_DIR, path.basename(publicUrl)), publicUrl);
+  return publicUrl;
 }
 
 // 回退路径：压缩失败或压缩后不更小时，按原图扩展名原样落盘

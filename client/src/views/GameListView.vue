@@ -233,7 +233,7 @@ onBeforeUnmount(() => {
         <div v-else class="grid">
           <div v-for="g in games" :key="g.id" class="card">
             <RouterLink class="card-link" :to="`/game/${g.id}`">
-              <img
+              <SmartImg
                 class="cover"
                 :class="{ loaded: isCoverLoaded(g.id) }"
                 :src="cover(g.logoImageUrl || g.coverImageUrl || g.heroImageUrl)"

@@ -220,9 +220,9 @@ watch(() => [route.params.id, route.query.preview], reloadForRoute, { immediate:
       </div>
 
       <RouterLink v-if="gameUrl" class="cover-link" :to="gameUrl" :title="gameDisplayName(review, lang.isEn)">
-        <img class="cover" :src="coverUrl(reviewCover(review))" :alt="gameDisplayName(review, lang.isEn)" />
+        <SmartImg class="cover" :src="coverUrl(reviewCover(review))" :alt="gameDisplayName(review, lang.isEn)" />
       </RouterLink>
-      <img v-else class="cover" :src="coverUrl(reviewCover(review))" :alt="gameDisplayName(review, lang.isEn)" />
+      <SmartImg v-else class="cover" :src="coverUrl(reviewCover(review))" :alt="gameDisplayName(review, lang.isEn)" />
 
       <div class="head">
         <h1>{{ review.title }}</h1>
@@ -238,7 +238,7 @@ watch(() => [route.params.id, route.query.preview], reloadForRoute, { immediate:
       <div v-if="review.author || params.length" class="author-card">
         <div v-if="review.author" class="ac-row">
           <RouterLink class="ac-main" :to="`/user/${review.author.username}`">
-            <img v-if="review.author.avatar" class="ac-avatar" :src="review.author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
+            <SmartImg v-if="review.author.avatar" class="ac-avatar" :src="review.author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
             <span v-else class="ac-avatar ph">{{ avatarInitial }}</span>
             <span class="ac-info">
               <span class="ac-name" :title="authorName">{{ authorName }}</span>

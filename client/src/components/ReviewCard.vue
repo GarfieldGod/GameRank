@@ -152,7 +152,7 @@ async function react(kind) {
   <article class="card" :class="{ panel: gamePanel || detailPanel, detail: detailPanel }" @click="onCardClick">
     <!-- 非评测库页：顶部横向封面栏 -->
     <RouterLink v-if="!gamePanel && !detailPanel && (gameName || gameCover)" class="game" :to="gameId ? `/game/${gameId}` : ''">
-      <img v-if="gameCover" class="gcover" :src="gameCover" :alt="gameName" referrerpolicy="no-referrer" loading="lazy" />
+      <SmartImg v-if="gameCover" class="gcover" :src="gameCover" :alt="gameName" referrerpolicy="no-referrer" loading="lazy" />
       <span v-else class="gcover ph">{{ gameName?.charAt(0) || "G" }}</span>
       <span class="gname">{{ gameName }}</span>
     </RouterLink>
@@ -160,7 +160,7 @@ async function react(kind) {
     <!-- 详情页顶部容器：排行+作者+评分+简述 水平排列于左/右容器之上 -->
     <div v-if="detailPanel" class="dbanner">
       <RouterLink v-if="authorProfileUrl" class="lauthor" :to="authorProfileUrl">
-        <img v-if="author.avatar" class="lavatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
+        <SmartImg v-if="author.avatar" class="lavatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
         <span v-else class="lavatar ph">{{ avatarInitial }}</span>
         <span class="luserblock">
           <span class="lusername" :title="authorName">{{ authorName }}</span>
@@ -180,7 +180,7 @@ async function react(kind) {
         <span class="gscore" :title="lang.t('review.rating', { n: ratingText })">{{ ratingText }}</span>
       </div>
       <RouterLink v-if="gamePanel && gameUrl && (gameName || gameCover)" class="lcoverlink" :to="gameUrl">
-        <img
+        <SmartImg
           v-if="gameCover"
           class="lcover"
           :class="{ loaded: isCoverLoaded(review.id) }"
@@ -204,7 +204,7 @@ async function react(kind) {
       <!-- 底部整体：头像+用户名+排行榜+游戏排位（仅评测库；详情页作者组已置顶） -->
       <div v-if="!detailPanel" class="lfooter">
         <RouterLink v-if="authorProfileUrl" class="lauthor" :to="authorProfileUrl">
-          <img v-if="author.avatar" class="lavatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
+          <SmartImg v-if="author.avatar" class="lavatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
           <span v-else class="lavatar ph">{{ avatarInitial }}</span>
           <span class="luserblock">
             <span class="lusername" :title="authorName">{{ authorName }}</span>
@@ -223,7 +223,7 @@ async function react(kind) {
           {{ rankText }}
         </span>
         <RouterLink v-if="!gamePanel && authorProfileUrl" class="alink" :to="authorProfileUrl">
-          <img v-if="author.avatar" class="avatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
+          <SmartImg v-if="author.avatar" class="avatar" :src="author.avatar" :alt="authorName" referrerpolicy="no-referrer" />
           <span v-else class="avatar ph">{{ avatarInitial }}</span>
           <span class="author" :title="authorName">{{ authorName }}</span>
         </RouterLink>

@@ -647,7 +647,7 @@ onMounted(() => {
     <form v-else class="form" :style="formStyle" @submit.prevent="save">
       <!-- 顶部背景：有图时占满网页宽度、高度随图片自适应，点击可重开设置面板 -->
       <div v-if="form.heroImageUrl" class="hero-bg clickable" @click="openPanel('background')">
-        <img class="hero-bg-img" :src="cover(form.heroImageUrl)" alt="" @load="onHeroLoad" />
+        <SmartImg class="hero-bg-img" :src="cover(form.heroImageUrl)" alt="" @load="onHeroLoad" />
         <span class="bg-hint">{{ lang.t("game.new.selectBackground") }}</span>
       </div>
       <!-- 无背景图时的占位背景条：作为底层被卡片压住，左右两侧各一个“选择背景图”提示 -->
@@ -659,7 +659,7 @@ onMounted(() => {
         <div class="hero overlap">
           <!-- 封面域：6:9 容器，未上传时显示“选择封面”，点击即打开详情封面设置面板 -->
           <div class="cover-box" @click="openPanel('cover')">
-            <img v-if="form.coverImageUrl" class="cover" :src="cover(form.coverImageUrl)" alt="grid" />
+            <SmartImg v-if="form.coverImageUrl" class="cover" :src="cover(form.coverImageUrl)" alt="grid" />
             <button v-else type="button" class="cover cover--empty">
               {{ lang.t("game.new.selectCover") }}
             </button>
@@ -742,7 +742,7 @@ onMounted(() => {
         </div>
         <button type="button" class="libcover-preview" @click="openPanel('libCover')">
           <span class="libcover-cover">
-            <img :src="cover(form.logoImageUrl)" alt="libcover" />
+            <SmartImg :src="cover(form.logoImageUrl)" alt="libcover" />
           </span>
           <span class="libcover-body">
             <span class="libcover-gname">{{ lang.gname(form) }}</span>
@@ -782,7 +782,7 @@ onMounted(() => {
             </div>
           </div>
           <div v-else-if="panelMeta" class="panel-preview" :class="'ratio-' + panelMeta.assetKey">
-            <img v-if="panelPreviewUrl" :src="cover(panelPreviewUrl)" alt="" />
+            <SmartImg v-if="panelPreviewUrl" :src="cover(panelPreviewUrl)" alt="" />
             <span v-else class="panel-preview-empty">{{ lang.t("game.new.panelEmpty") }}</span>
           </div>
 

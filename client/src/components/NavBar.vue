@@ -47,7 +47,7 @@ function avatarUrl(url) {
 
         <div class="user-menu">
           <RouterLink class="user-trigger" :to="`/user/${auth.user?.username}`">
-            <img class="avatar" :src="avatarUrl(auth.user?.avatar)" :alt="userDisplay" />
+            <SmartImg class="avatar" :src="avatarUrl(auth.user?.avatar)" :alt="userDisplay" />
             <span class="user-name">{{ userDisplay }}</span>
           </RouterLink>
           <div class="dropdown">

@@ -334,7 +334,7 @@ onBeforeUnmount(stopOnlinePoll);
       <p v-if="pendingAdd.length === 0" class="empty-hint">{{ lang.t("admin.noPending") }}</p>
       <ul v-else class="user-list">
         <li v-for="p in addPage.paged" :key="p.id" class="user-row proposal-row">
-          <img v-if="propCover(p)" class="u-avatar" :src="propCover(p)" alt="" />
+          <SmartImg v-if="propCover(p)" class="u-avatar" :src="propCover(p)" alt="" />
           <span v-else class="u-avatar placeholder">{{ (propName(p) || "?")[0] }}</span>
           <div class="u-info">
             <span class="u-name">{{ propName(p) }}</span>
@@ -360,7 +360,7 @@ onBeforeUnmount(stopOnlinePoll);
       <p v-if="pendingEdit.length === 0" class="empty-hint">{{ lang.t("admin.noPendingEdit") }}</p>
       <ul v-else class="user-list">
         <li v-for="p in editPage.paged" :key="p.id" class="user-row proposal-row">
-          <img v-if="propCover(p)" class="u-avatar" :src="propCover(p)" alt="" />
+          <SmartImg v-if="propCover(p)" class="u-avatar" :src="propCover(p)" alt="" />
           <span v-else class="u-avatar placeholder">{{ (propName(p) || "?")[0] }}</span>
           <div class="u-info">
             <RouterLink v-if="propRoute(p)" class="u-name link" :to="propRoute(p)">{{ propName(p) }}</RouterLink>
@@ -396,7 +396,7 @@ onBeforeUnmount(stopOnlinePoll);
           <h3 class="deleted-type">{{ lang.t("admin.deletedGames") }}（{{ deletedGames.length }}）</h3>
           <ul class="user-list">
             <li v-for="g in delGamePage.paged" :key="'g' + g.id" class="user-row proposal-row">
-              <img v-if="libCover(g)" class="u-avatar" :src="libCover(g)" alt="" />
+              <SmartImg v-if="libCover(g)" class="u-avatar" :src="libCover(g)" alt="" />
               <span v-else class="u-avatar placeholder">{{ (g.nameZh || "?")[0] }}</span>
               <div class="u-info">
                 <span class="u-name">{{ g.nameZh || g.nameEn }}<em v-if="g.nameEn && g.nameZh" class="sub-name">{{ g.nameEn }}</em></span>
@@ -429,7 +429,7 @@ onBeforeUnmount(stopOnlinePoll);
           <h3 class="deleted-type">{{ lang.t("admin.deletedReviews") }}（{{ deletedReviews.length }}）</h3>
           <ul class="user-list">
             <li v-for="r in delReviewPage.paged" :key="'r' + r.id" class="user-row proposal-row">
-              <img v-if="libCover(r.game) || r.coverImageUrl" class="u-avatar" :src="libCover(r.game) || r.coverImageUrl" alt="" />
+              <SmartImg v-if="libCover(r.game) || r.coverImageUrl" class="u-avatar" :src="libCover(r.game) || r.coverImageUrl" alt="" />
               <span v-else class="u-avatar placeholder">{{ (r.gameName || r.title || "?")[0] }}</span>
               <div class="u-info">
                 <span class="u-name">{{ r.gameName || r.title }}<em class="operator">{{ lang.t("admin.reviewAuthor", { name: r.author?.nickname || r.author?.username || "" }) }}</em><em v-if="r.brief" class="brief">{{ r.brief }}</em></span>
@@ -486,7 +486,7 @@ onBeforeUnmount(stopOnlinePoll);
         <ul class="user-list">
           <li v-for="u in pagedAdmins" :key="u.id" class="user-row">
             <RouterLink class="u-link" :to="`/user/${u.username}`">
-              <img v-if="u.avatar" class="u-avatar" :src="u.avatar" alt="" />
+              <SmartImg v-if="u.avatar" class="u-avatar" :src="u.avatar" alt="" />
               <span v-else class="u-avatar placeholder">{{ (displayName(u) || "?")[0] }}</span>
               <div class="u-info">
                 <span class="u-name-line">
@@ -520,7 +520,7 @@ onBeforeUnmount(stopOnlinePoll);
         <ul class="user-list">
           <li v-for="u in pagedNormalUsers" :key="u.id" class="user-row">
             <RouterLink class="u-link" :to="`/user/${u.username}`">
-              <img v-if="u.avatar" class="u-avatar" :src="u.avatar" alt="" />
+              <SmartImg v-if="u.avatar" class="u-avatar" :src="u.avatar" alt="" />
               <span v-else class="u-avatar placeholder">{{ (displayName(u) || "?")[0] }}</span>
               <div class="u-info">
                 <span class="u-name-line">

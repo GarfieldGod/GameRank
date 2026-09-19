@@ -330,7 +330,7 @@ onMounted(routeChange);
 
     <template v-else-if="profile">
       <div class="profile-head">
-        <img class="avatar" :src="avatarUrl(profile.avatar)" :alt="displayName(profile)" />
+        <SmartImg class="avatar" :src="avatarUrl(profile.avatar)" :alt="displayName(profile)" />
         <div class="info">
           <div class="name-line">
             <h1>{{ displayName(profile) }}</h1>
@@ -408,7 +408,7 @@ onMounted(routeChange);
         <p v-else-if="proposals.length === 0" class="hint">{{ lang.t("user.profile.noProposals") }}</p>
         <div v-else class="proposal-list">
           <div v-for="p in pagedProposals" :key="p.id" class="proposal-item">
-            <img v-if="proposalCover(p)" class="prop-cover" :src="proposalCover(p)" alt="" loading="lazy" />
+            <SmartImg v-if="proposalCover(p)" class="prop-cover" :src="proposalCover(p)" alt="" loading="lazy" />
             <div v-else class="prop-cover placeholder">{{ (proposalName(p) || "?")[0] }}</div>
             <div class="prop-info">
               <div class="prop-top">
@@ -460,7 +460,7 @@ onMounted(routeChange);
         <div v-else-if="!isDraftTab()" class="ranking-list">
           <RouterLink v-for="(r, idx) in reviews" :key="r.id" class="ranking-item" :to="`/reviews/${r.id}`">
             <span class="rank-no">{{ r.authorRank ?? idx + 1 }}</span>
-            <img class="rank-cover" :class="{ loaded: isCoverLoaded(r.id) }" :src="coverOf(r)" :alt="gameDisplayName(r, lang.isEn)" loading="lazy" @load="onCoverLoad(r.id)" />
+            <SmartImg class="rank-cover" :class="{ loaded: isCoverLoaded(r.id) }" :src="coverOf(r)" :alt="gameDisplayName(r, lang.isEn)" loading="lazy" @load="onCoverLoad(r.id)" />
             <div class="rank-info">
               <span class="rank-game">{{ gameDisplayName(r, lang.isEn) }}</span>
               <span v-if="briefOf(r)" class="rank-brief">{{ briefOf(r) }}</span>

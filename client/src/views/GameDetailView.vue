@@ -407,7 +407,7 @@ onActivated(async () => {
       <!-- 顶部 Hero 背景条：绝对定位、左/右出血铺满整屏，位于卡片后台；
            高度随图片自然比例自适应，不参与文档流、不影响卡片定位 -->
       <div v-if="displayGame.heroImageUrl" class="hero-bg">
-        <img
+        <SmartImg
           class="hero-bg-img"
           :class="{ loaded: heroLoaded }"
           :src="displayGame.heroImageUrl"
@@ -417,7 +417,7 @@ onActivated(async () => {
         <span v-if="previewing && previewChanged?.hero" class="diff-badge badge-hero">{{ lang.t("admin.changed") }}</span>
       </div>
       <div class="hero">
-        <img
+        <SmartImg
           class="cover"
           :class="{ loaded: coverLoaded }"
           :src="cover(displayGame.coverImageUrl)"

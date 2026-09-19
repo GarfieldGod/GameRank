@@ -13,6 +13,18 @@
 
 ---
 
+## Version 0.0.3
+
+### 新增功能
+- **图片走 Cloudflare R2 CDN（零回源流量费）**：图片主源从 VPS 迁至 Cloudflare R2 桶，经 Cloudflare 全球 CDN 分发，访问不再经过服务器带宽（R2 egress 免费）。数据库图片字段仍存站内相对路径（`/uploads/xxx`），完整访问地址由前端拼接，故无需改写数据。
+  - 后端新增 `server/src/services/r2.js`：基于 `@aws-sdk/client-s3`，`syncToR2()` 把本地文件按「去掉 `/uploads/` 前缀的相对路径」作为 object key 上传 R2（`HeadObject` 幂等探测，已存在则跳过），带一年不可变缓存头。**本地磁盘始终是主写入 + 兜底**：R2 未配置凭证 / 上传失败 / 网络不通时静默降级为仅本地，绝不阻塞或打断上传/拉取主流程。
+  - 上传链路双写：用户上传（`/api/upload`，图已由前端压缩）与 SGDB 封面拉取（`sgdb.js`，后端已压缩）落盘本地后都尽力同步 R2；SGDB 缩略图 `thumbs/` 与 `backup-originals/` 原图灾备**不进 R2**。
+  - 前端新增通用组件 `SmartImg.vue` 并全局注册：仅对 `/uploads/` 站内图做 CDN 映射（拼 `VITE_IMG_CDN_BASE`，默认 `https://image-gamerank.garfieldgod.cn`），`onerror` 一次自动回退到 `/uploads/` 本地路径；外链 `http(s)/data:/blob:` 原样使用，其余属性自动透传到根 `<img>`。全站展示用 `<img>`（封面、头像、库封面、排行/管理列表等 20+ 处）统一替换为 `SmartImg`；裁剪舞台、SGDB 代理缩略图等 3 处非展示类保持原生 `<img>`。
+  - 存量迁移：新增 `server/scripts/migrate-to-r2.mjs`（`npm run r2:migrate` / `r2:migrate:dry`），把本地 `uploads/` 既有压缩图一次性按相对路径同步到 R2，排除 `backup-originals/` 与 `thumbs/`，幂等可重跑。
+  - 配置：`server/.env` 增加 `R2_ENDPOINT/R2_BUCKET/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/IMG_CDN_BASE`；`client/.env.example` 增加 `VITE_IMG_CDN_BASE`（置空字符串可完全关闭 CDN 映射，退化为直连 `/uploads/`）。**部署前置**：Cloudflare 完成子域 CNAME setup、为 R2 桶绑定自定义域名 `image-gamerank.garfieldgod.cn` 并配置 CORS（Origin 含生产 `https://gamerank.garfieldgod.cn` 与本地 `http://localhost:5173`，方法 `GET`）。
+
+---
+
 ## Version 0.0.2
 
 ### 新增功能
