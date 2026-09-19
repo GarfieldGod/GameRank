@@ -16,8 +16,8 @@ const CDN = (import.meta.env.VITE_IMG_CDN_BASE || "https://image-gamerank.garfie
 const rel = computed(() => String(props.src || ""));
 const isSite = (v) => typeof v === "string" && v.startsWith("/uploads/");
 
-// 主源：站内图拼 CDN 域名，其余原样
-const primary = computed(() => (CDN && isSite(rel.value) ? CDN + rel.value.slice(9) : rel.value));
+// 主源：站内图拼 CDN 域名（CDN 末尾斜杠已在上面剥掉，此处补回 / 分隔；slice(9) 去掉 /uploads 前缀），其余原样
+const primary = computed(() => (CDN && isSite(rel.value) ? CDN + "/" + rel.value.slice(9) : rel.value));
 // 兜底：仅站内图需要回退到 /uploads/ 原路径
 const fallback = computed(() => (CDN && isSite(rel.value) ? rel.value : ""));
 

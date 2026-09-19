@@ -23,6 +23,9 @@
   - 存量迁移：新增 `server/scripts/migrate-to-r2.mjs`（`npm run r2:migrate` / `r2:migrate:dry`），把本地 `uploads/` 既有压缩图一次性按相对路径同步到 R2，排除 `backup-originals/` 与 `thumbs/`，幂等可重跑。
   - 配置：`server/.env` 增加 `R2_ENDPOINT/R2_BUCKET/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/IMG_CDN_BASE`；`client/.env.example` 增加 `VITE_IMG_CDN_BASE`（置空字符串可完全关闭 CDN 映射，退化为直连 `/uploads/`）。**部署前置**：Cloudflare 完成子域 CNAME setup、为 R2 桶绑定自定义域名 `image-gamerank.garfieldgod.cn` 并配置 CORS（Origin 含生产 `https://gamerank.garfieldgod.cn` 与本地 `http://localhost:5173`，方法 `GET`）。
 
+### 修复
+- **`SmartImg.vue` CDN 地址拼接缺斜杠**：原实现 `CDN + rel.slice(9)` 把域名与 object key 直接粘连（`…garfieldgod.cnxxx.webp`），导致所有 CDN 图片请求 `ERR_NAME_NOT_RESOLVED`、全站静默回退 VPS。修复为 `CDN + "/" + rel.slice(9)`。
+
 ---
 
 ## Version 0.0.2
