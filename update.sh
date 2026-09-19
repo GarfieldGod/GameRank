@@ -55,7 +55,11 @@ ok "前端构建完成"
 
 # ---------- 5/5 重启后端 ----------
 STAGE=5; say "重启后端服务 (systemd)"
-if systemctl list-units --type=service --all 2>/dev/null | grep -q 'gamerank.service'; then
+# 注意：勿用 systemctl list-units | grep -q 探测——
+# 脚本开启 set -o pipefail 后，grep -q 匹配即退出会让 systemctl 收到 SIGPIPE，
+# 整个管道被判为失败，导致误判“未找到服务”而跳过重启。
+# 改用无管道的 systemctl is-active/is-enabled（返回码 0=存在），在 pipefail 下依然可靠。
+if systemctl is-active --quiet gamerank 2>/dev/null || systemctl is-enabled --quiet gamerank 2>/dev/null; then
   sudo systemctl restart gamerank || fail "systemctl restart gamerank 失败"
   sudo systemctl status gamerank --no-pager | head -8 || true
 else

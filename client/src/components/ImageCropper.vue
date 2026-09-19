@@ -13,7 +13,8 @@ const props = defineProps({
   shape: { type: String, default: "circle" },
   aspectRatio: { type: Number, default: 1 },
   outputSize: { type: Number, default: 256 }, // 输出边长（正方形）
-  outputType: { type: String, default: "image/png" },
+  // 默认 WebP：头像等场景比 PNG 小 60-90%；调用方可显式传 image/png 保留原行为
+  outputType: { type: String, default: "image/webp" },
   title: { type: String, default: "" },
   hint: { type: String, default: "" },
   confirmText: { type: String, default: "OK" },

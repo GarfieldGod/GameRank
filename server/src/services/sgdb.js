@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import SGDB from "steamgriddb";
+import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "uploads", "sgdb");
@@ -75,13 +76,34 @@ export function pickGrid(grids) {
 }
 
 // 把远程封面图下载到本地 uploads/sgdb 目录，返回公开访问路径（/uploads/sgdb/...）
+// 下载后统一经 sharp「等比限长边 1600 + 转 WebP(质量82)」压缩落盘，显著减小体积；
+// 仅当压缩产物比原图更小时才采用，否则回退存原图；压缩失败同样回退原图，保证不丢图。
 export async function downloadCover(imageUrl) {
   const res = await fetch(imageUrl);
   if (!res.ok) throw new Error(`下载封面失败: HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
+  const baseName = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const target = path.join(PUBLIC_DIR, `${baseName}.webp`);
+  try {
+    await sharp(buf, { animated: false })
+      .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+      .webp({ quality: 82, effort: 4 })
+      .toFile(target);
+    if (fs.statSync(target).size >= buf.length) {
+      fs.rmSync(target, { force: true });
+      return writeOriginal(imageUrl, buf, baseName);
+    }
+    return `/uploads/sgdb/${path.basename(target)}`;
+  } catch {
+    return writeOriginal(imageUrl, buf, baseName);
+  }
+}
+
+// 回退路径：压缩失败或压缩后不更小时，按原图扩展名原样落盘
+function writeOriginal(imageUrl, buf, baseName) {
   const extMatch = /\.(png|jpe?g|gif|webp)(\?|$)/i.exec(imageUrl);
   const ext = extMatch ? (extMatch[1].toLowerCase() === "jpeg" ? "jpg" : extMatch[1].toLowerCase()) : "png";
-  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.${ext}`;
+  const filename = `${baseName}.${ext}`;
   fs.writeFileSync(path.join(PUBLIC_DIR, filename), buf);
   return `/uploads/sgdb/${filename}`;
 }

@@ -452,9 +452,12 @@ async function confirmPanel() {
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ow, oh);
     cropSaving.value = true;
     try {
-      const blob = await new Promise((res) => out.toBlob(res, "image/png"));
-      const file = new File([blob], "library-cover.png", { type: "image/png" });
-      const url = await uploadImage(file); // 返回字符串 URL
+      // 库封面为 logo（透明底），统一转 WebP 以显著减小体积；透明信息保留
+      const blob = await new Promise((res) => out.toBlob(res, "image/webp", 0.85));
+      if (!blob) throw new Error("canvas toBlob failed");
+      const file = new File([blob], "library-cover.webp", { type: "image/webp" });
+      // 裁剪结果已按取景输出，直接上传不再二次压缩（跳过 small 检查）
+      const url = await uploadImage(file, { opts: { skipIfSmall: false } }); // 返回字符串 URL
       form.value.logoImageUrl = url;
       chosen.value.logo = null; // 库封面以裁剪结果为准，不再沿用原 logo 选中态
       error.value = "";

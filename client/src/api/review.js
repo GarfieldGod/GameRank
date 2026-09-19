@@ -1,4 +1,5 @@
 import request from "./request";
+import { compressImage } from "@/utils/imageCompress";
 
 // 获取评测列表：{ page, pageSize, keyword, tag, authorId }
 export function fetchReviews(params) {
@@ -26,9 +27,12 @@ export function deleteReview(id, reason) {
 }
 
 // 上传图片 → { url }
-export async function uploadImage(file) {
+// 所有前端上传的汇聚点：默认先经 compressImage「等比限宽 + 转 WebP」再上传，
+// 任何场景都可传 { opts: { maxEdge, quality, skipIfSmall, type } } 覆盖默认参数。
+export async function uploadImage(file, { opts } = {}) {
+  const compressed = await compressImage(file, opts);
   const form = new FormData();
-  form.append("file", file);
+  form.append("file", compressed);
   const r = await request.post("/uploads", form, {
     headers: { "Content-Type": "multipart/form-data" },
   });
