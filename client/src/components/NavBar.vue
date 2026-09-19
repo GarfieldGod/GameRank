@@ -241,7 +241,9 @@ function avatarUrl(url) {
   position: absolute;
   top: 100%;
   left: 0;
-  width: 100%;
+  /* 面板宽度随内容自适应（至少与触发区同宽），保证菜单项始终完整展示不换行 */
+  width: max-content;
+  min-width: 100%;
   /* padding-top 为隐形悬停桥：从触发区移入菜单时不间断 */
   padding-top: 8px;
   z-index: 20;
@@ -263,6 +265,7 @@ function avatarUrl(url) {
 .dropdown-item {
   display: block;
   width: 100%;
+  white-space: nowrap;
   text-align: left;
   padding: 9px 12px;
   border: none;

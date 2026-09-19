@@ -15,6 +15,10 @@ const lang = useLangStore();
 
 const isEdit = computed(() => Boolean(route.params.id));
 
+// 原评测状态：已发布(非草稿)的评测编辑时不允许转为草稿，只提供「取消 / 确认修改」
+const originalStatus = ref(null);
+const isPublishedEdit = computed(() => isEdit.value && originalStatus.value === "PUBLISHED");
+
 // 分项评分折叠：默认收起，需勾选“启用分项评分”才展开
 const showAspects = ref(false);
 
@@ -71,6 +75,37 @@ function discardAndLeave() {
 function cancelLeave() {
   showLeaveDialog.value = false;
   leaveNext = null;
+}
+
+// 已发布评测：点「取消」放弃修改并离开（不转草稿）
+function cancelEdit() {
+  suppressLeave = true;
+  if (window.history.length > 1) {
+    router.back();
+  } else {
+    router.push(`/reviews/${route.params.id}`);
+  }
+}
+
+// 已发布评测：离开弹窗点「确认修改」= 保存修改（保持 PUBLISHED）后离开
+async function saveChangesForLeave() {
+  error.value = "";
+  if (!validatePublish()) {
+    showLeaveDialog.value = false;
+    leaveNext = null;
+    return;
+  }
+  loading.value = true;
+  try {
+    await updateReview(route.params.id, buildPayload("PUBLISHED"));
+    markReviewsDirty();
+    showLeaveDialog.value = false;
+    if (leaveNext) leaveNext();
+  } catch (err) {
+    error.value = extractError(err, lang.t("review.editor.updateFailed"));
+  } finally {
+    loading.value = false;
+  }
 }
 
 const form = reactive({
@@ -275,35 +310,36 @@ function buildPayload(status) {
   };
 }
 
-async function submit() {
-  error.value = "";
+// 发布/确认修改前的校验：游戏名、正文、分项、分数均合法才可保存为已发布
+function validatePublish() {
   if (!form.gameName.trim() || !form.content.trim()) {
     error.value = lang.t("review.editor.required");
-    return;
+    return false;
   }
   if (!items.value.length) {
     error.value = lang.t("review.editor.noAspects");
-    return;
+    return false;
   }
   if (!showAspects.value) {
     const ms = Number(manualScore.value);
     if (!Number.isFinite(ms) || ms < 0 || ms > 10) {
       error.value = lang.t("review.editor.scoreInvalid");
-      return;
+      return false;
     }
   }
-  const ratingParams = items.value.map((it) => ({
-    aspect: it.aspect,
-    content: (it.content || "").trim(),
-    score: Number(it.score),
-    weight: Number(it.weight),
-  }));
-  for (const p of ratingParams) {
-    if (!Number.isInteger(p.score) || p.score < 0 || p.score > 10) {
+  for (const it of items.value) {
+    const s = Number(it.score);
+    if (!Number.isInteger(s) || s < 0 || s > 10) {
       error.value = lang.t("review.editor.scoreInvalid");
-      return;
+      return false;
     }
   }
+  return true;
+}
+
+async function submit() {
+  error.value = "";
+  if (!validatePublish()) return;
 
   loading.value = true;
   draftSaved.value = false;
@@ -395,6 +431,7 @@ onMounted(async () => {
         showAspects.value = false;
         manualScore.value = Number(r.rating) || 0;
       }
+      originalStatus.value = r.status || "PUBLISHED";
       // 草稿直接以编辑模式继续
       if (r.status === "DRAFT") draftSaved.value = true;
     } catch {
@@ -567,9 +604,15 @@ onBeforeUnmount(() => {
       <p v-else-if="draftSaved" class="draft-ok">{{ lang.t("review.editor.draftSaved") }}</p>
 
       <div class="actions">
-        <button class="draft" type="button" :disabled="loading" @click="saveDraft">
-          {{ lang.t("review.editor.saveDraft") }}
-        </button>
+        <template v-if="isPublishedEdit">
+          <!-- 编辑已发布评测：只提供取消与确认修改，避免把已发布内容转为草稿 -->
+          <button class="draft" type="button" :disabled="loading" @click="cancelEdit">{{ lang.t("common.cancel") }}</button>
+        </template>
+        <template v-else>
+          <button class="draft" type="button" :disabled="loading" @click="saveDraft">
+            {{ lang.t("review.editor.saveDraft") }}
+          </button>
+        </template>
         <button class="primary" type="submit" :disabled="loading">
           {{ loading ? lang.t("common.saving") : isEdit ? lang.t("review.editor.saveChange") : lang.t("review.editor.publish") }}
         </button>
@@ -578,15 +621,25 @@ onBeforeUnmount(() => {
 
     <div v-if="showLeaveDialog" class="leave-mask">
       <div class="leave-dialog">
-        <p class="leave-msg">{{ lang.t("review.editor.leaveMsg") }}</p>
-        <div class="leave-actions">
-          <button type="button" class="leave-cancel" @click="cancelLeave">{{ lang.t("common.cancel") }}</button>
-          <div class="leave-actions-right">
-            <button type="button" class="leave-btn leave-discard" @click="discardAndLeave">{{ lang.t("review.editor.discard") }}</button>
-            <button type="button" class="leave-btn leave-save" :disabled="loading" @click="saveDraftForLeave">
-              {{ lang.t("review.editor.saveDraft") }}
-            </button>
-          </div>
+        <p class="leave-msg">{{ isPublishedEdit ? lang.t("review.editor.leaveEditMsg") : lang.t("review.editor.leaveMsg") }}</p>
+        <div class="leave-actions" :class="{ 'leave-actions-end': isPublishedEdit }">
+          <template v-if="isPublishedEdit">
+            <div class="leave-actions-right">
+              <button type="button" class="leave-btn" @click="cancelLeave">{{ lang.t("common.cancel") }}</button>
+              <button type="button" class="leave-btn leave-save" :disabled="loading" @click="saveChangesForLeave">
+                {{ lang.t("review.editor.saveChange") }}
+              </button>
+            </div>
+          </template>
+          <template v-else>
+            <button type="button" class="leave-cancel" @click="cancelLeave">{{ lang.t("common.cancel") }}</button>
+            <div class="leave-actions-right">
+              <button type="button" class="leave-btn leave-discard" @click="discardAndLeave">{{ lang.t("review.editor.discard") }}</button>
+              <button type="button" class="leave-btn leave-save" :disabled="loading" @click="saveDraftForLeave">
+                {{ lang.t("review.editor.saveDraft") }}
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -1134,6 +1187,9 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.leave-actions.leave-actions-end {
+  justify-content: flex-end;
 }
 .leave-actions-right {
   display: flex;

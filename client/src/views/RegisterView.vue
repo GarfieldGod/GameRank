@@ -19,7 +19,8 @@ const usernameRe = /^[a-zA-Z0-9_]{3,20}$/;
 function validate() {
   errors.username = usernameRe.test(form.username.trim()) ? "" : lang.t("register.usernameInvalid");
   const nick = form.nickname.trim();
-  errors.nickname = nick && (nick.length < 3 || nick.length > 20) ? lang.t("register.nicknameInvalid") : "";
+  if (!nick) errors.nickname = lang.t("register.nicknameRequired");
+  else errors.nickname = nick.length < 3 || nick.length > 20 ? lang.t("register.nicknameInvalid") : "";
   errors.password = form.password.length >= 6 ? "" : lang.t("register.passwordShort");
   errors.confirm = form.confirm === form.password ? "" : lang.t("register.mismatch");
   return !errors.username && !errors.nickname && !errors.password && !errors.confirm;
@@ -33,7 +34,7 @@ async function onSubmit() {
   try {
     await auth.registerAndLogin({
       username: form.username.trim(),
-      nickname: form.nickname.trim() || undefined,
+      nickname: form.nickname.trim(),
       password: form.password,
       bio: form.bio.trim() || undefined,
     });
@@ -67,7 +68,7 @@ async function onSubmit() {
       <span v-if="errors.confirm" class="err">{{ errors.confirm }}</span>
 
       <label>{{ lang.t("register.nickname") }}
-        <input v-model="form.nickname" type="text" :placeholder="lang.t('register.nicknamePlaceholder', { user: form.username })" maxlength="20" @input="validate" />
+        <input v-model="form.nickname" type="text" :placeholder="lang.t('register.nicknamePlaceholder')" maxlength="20" @input="validate" />
       </label>
       <span v-if="errors.nickname" class="err">{{ errors.nickname }}</span>
 

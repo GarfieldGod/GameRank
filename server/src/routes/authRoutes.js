@@ -30,7 +30,11 @@ router.post("/register", registerLimiter, async (req, res) => {
   if (password.length < 6) {
     return res.status(400).json({ error: "密码长度至少 6 位" });
   }
-  if (nickname && (nickname.trim().length < 3 || nickname.trim().length > 20)) {
+  const nick = (nickname || "").trim();
+  if (!nick) {
+    return res.status(400).json({ error: "用户名不能为空" });
+  }
+  if (nick.length < 3 || nick.length > 20) {
     return res.status(400).json({ error: "昵称需为 3-20 个字符" });
   }
 
@@ -39,11 +43,12 @@ router.post("/register", registerLimiter, async (req, res) => {
     return res.status(409).json({ error: "该账号已被注册" });
   }
 
-  if (nickname && nickname.trim()) {
-    const nickDupe = await prisma.user.findFirst({ where: { nickname: nickname.trim() } });
-    if (nickDupe) {
-      return res.status(409).json({ error: "用户名已被占用" });
-    }
+  // 昵称全局唯一；同时禁止与「昵称为空、显示名回退为账号」的既有用户撞名，避免重复用户名
+  const nickDupe = await prisma.user.findFirst({
+    where: { OR: [{ nickname: nick }, { username: nick, nickname: null }] },
+  });
+  if (nickDupe) {
+    return res.status(409).json({ error: "用户名已被占用" });
   }
   // 头像/简介与资料编辑接口保持一致校验，避免注册时写入不可控值
   if (avatar !== undefined && avatar !== "") {
@@ -58,7 +63,7 @@ router.post("/register", registerLimiter, async (req, res) => {
 
   const hash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
-    data: { username, nickname: nickname || null, password: hash, avatar, bio },
+    data: { username, nickname: nick, password: hash, avatar, bio },
   });
   // 不返回 password
   const { password: _pw, ...safe } = user;
